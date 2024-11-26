@@ -1,0 +1,94 @@
+package nfd_coredns
+
+import (
+	"context"
+	"fmt"
+	"strconv"
+
+	"github.com/miekg/dns"
+)
+
+type JsonRRs struct {
+	Rrs []JsonRr `json:"rr"`
+}
+
+type JsonRr struct {
+	// Name will be like @ (for origin - ie: patrick.algo.xyz., or a name like box which would
+	// represent box.patrick.algo.xyz
+	Name    string   `json:"name"`
+	Rrdatas []string `json:"rrdatas"`
+	Ttl     int      `json:"ttl,omitempty"`
+	Type    string   `json:"type"`
+}
+
+/*
+	patrick.algo.xyz
+	---
+	@ 		A {ip address}
+	box 	A {ip address}
+	(becomes lookup of patrick.algo w/ 'box' name record box.patrick.algo
+*/
+
+func DnsRRsFromJsonRRs(jsonRecords []JsonRr, queryName string, rrType uint16) ([]dns.RR, error) {
+	var (
+		rrs = make([]dns.RR, 0, len(jsonRecords))
+	)
+
+	typeName, found := dns.TypeToString[uint16(rrType)]
+	if !found {
+		return nil, fmt.Errorf("failed to find type name for %d", rrType)
+	}
+	for _, jsonRecord := range jsonRecords {
+		if jsonRecord.Name != queryName || jsonRecord.Type != typeName {
+			continue
+		}
+		// compose as dns string for parsing
+		// ie: json of:
+		// {
+		//  "name": "example.com.",
+		//  "rrdatas": [
+		//      "10 mail.example.com.",
+		//      "20 mail2.example.com."
+		//  ],
+		//  "ttl": 86400,
+		//  "type": "MX"
+		//}
+		// would get converted to not one, but two records, using the same values except for the rrdatas at the end
+		// example.com. 86400 IN MX 10 mail.example.com.
+		// example.com. 86400 IN MX 20 mail2.example.com.
+		ttl := 300
+		if jsonRecord.Ttl != 0 {
+			ttl = jsonRecord.Ttl
+		}
+		for _, rrdata := range jsonRecord.Rrdatas {
+			dnsString := jsonRecord.Name + " " + strconv.Itoa(ttl) + " " + dns.ClassToString[dns.ClassINET] + " " + jsonRecord.Type + " "
+			dnsString += rrdata
+			rr, err := dns.NewRR(dnsString)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse dns string: %s", dnsString)
+			}
+			rrs = append(rrs, rr)
+		}
+	}
+	return rrs, nil
+}
+
+func mergeJsonRrrs(ctx context.Context, base []JsonRr, segment []JsonRr) []JsonRr {
+	// start with base data, then add entries from segment ONLY if base doesn't have the same name and type
+	// in any of its records
+	var ret = base
+	for _, segmentRecord := range segment {
+		found := false
+		for _, baseRecord := range ret {
+			if baseRecord.Name == segmentRecord.Name && baseRecord.Type == segmentRecord.Type {
+				found = true
+				break
+			}
+		}
+		if !found {
+			ret = append(ret, segmentRecord)
+		}
+	}
+
+	return ret
+}
