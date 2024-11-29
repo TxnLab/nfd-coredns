@@ -18,9 +18,9 @@ func TestMergeJsonRrrs(t *testing.T) {
 			name: "Non-overlapping entries",
 			base: []JsonRr{
 				{
-					Name:    "example.com.",
-					Rrdatas: []string{"foo", "bar"},
-					Type:    "A",
+					Name:   "example.com.",
+					RrData: []string{"foo", "bar"},
+					Type:   "A",
 				},
 			},
 			segment: []JsonRr{
@@ -28,53 +28,53 @@ func TestMergeJsonRrrs(t *testing.T) {
 			},
 			want: []JsonRr{
 				{Name: "example.net.", Type: "A"},
-				{Name: "example.com.", Type: "A", Rrdatas: []string{"foo", "bar"}},
+				{Name: "example.com.", Type: "A", RrData: []string{"foo", "bar"}},
 			},
 		},
 		{
 			name: "Overlapping entries",
 			base: []JsonRr{
-				{Name: "example.com.", Type: "A", Rrdatas: []string{"base version"}},
+				{Name: "example.com.", Type: "A", RrData: []string{"base version"}},
 			},
 			segment: []JsonRr{
-				{Name: "example.com.", Type: "A", Rrdatas: []string{"segment version"}},
-				{Name: "example.com.", Type: "A", Rrdatas: []string{"segment version 2"}},
+				{Name: "example.com.", Type: "A", RrData: []string{"segment version"}},
+				{Name: "example.com.", Type: "A", RrData: []string{"segment version 2"}},
 			},
 			want: []JsonRr{
-				{Name: "example.com.", Type: "A", Rrdatas: []string{"base version"}},
+				{Name: "example.com.", Type: "A", RrData: []string{"base version"}},
 			},
 		},
 		{
 			name: "Multiple overlapping entries",
 			base: []JsonRr{
-				{Name: "example.com.", Type: "A", Rrdatas: []string{"base com version"}},
-				{Name: "example.com.", Type: "A", Rrdatas: []string{"base com version 2"}},
-				{Name: "example.net.", Type: "A", Rrdatas: []string{"base net version"}},
+				{Name: "example.com.", Type: "A", RrData: []string{"base com version"}},
+				{Name: "example.com.", Type: "A", RrData: []string{"base com version 2"}},
+				{Name: "example.net.", Type: "A", RrData: []string{"base net version"}},
 			},
 			segment: []JsonRr{
-				{Name: "example.com.", Type: "A", Rrdatas: []string{"segment com version"}},
-				{Name: "example.net.", Type: "A", Rrdatas: []string{"segment net version"}},
+				{Name: "example.com.", Type: "A", RrData: []string{"segment com version"}},
+				{Name: "example.net.", Type: "A", RrData: []string{"segment net version"}},
 			},
 			want: []JsonRr{
-				{Name: "example.com.", Type: "A", Rrdatas: []string{"base com version"}},
-				{Name: "example.com.", Type: "A", Rrdatas: []string{"base com version 2"}},
-				{Name: "example.net.", Type: "A", Rrdatas: []string{"base net version"}},
+				{Name: "example.com.", Type: "A", RrData: []string{"base com version"}},
+				{Name: "example.com.", Type: "A", RrData: []string{"base com version 2"}},
+				{Name: "example.net.", Type: "A", RrData: []string{"base net version"}},
 			},
 		},
 		{
 			name: "Interleaved overlapping entries",
 			base: []JsonRr{
-				{Name: "example.com.", Type: "A", Rrdatas: []string{"base com version"}},
-				{Name: "example.org.", Type: "A", Rrdatas: []string{"base org version"}},
+				{Name: "example.com.", Type: "A", RrData: []string{"base com version"}},
+				{Name: "example.org.", Type: "A", RrData: []string{"base org version"}},
 			},
 			segment: []JsonRr{
-				{Name: "example.org.", Type: "A", Rrdatas: []string{"segment org version"}},
-				{Name: "example.net.", Type: "A", Rrdatas: []string{"segment net version"}},
+				{Name: "example.org.", Type: "A", RrData: []string{"segment org version"}},
+				{Name: "example.net.", Type: "A", RrData: []string{"segment net version"}},
 			},
 			want: []JsonRr{
-				{Name: "example.com.", Type: "A", Rrdatas: []string{"base com version"}},
-				{Name: "example.org.", Type: "A", Rrdatas: []string{"base org version"}},
-				{Name: "example.net.", Type: "A", Rrdatas: []string{"segment net version"}},
+				{Name: "example.com.", Type: "A", RrData: []string{"base com version"}},
+				{Name: "example.org.", Type: "A", RrData: []string{"base org version"}},
+				{Name: "example.net.", Type: "A", RrData: []string{"segment net version"}},
 			},
 		},
 		{
@@ -124,7 +124,7 @@ func equal(left []JsonRr, right []JsonRr) bool {
 
 	for i := range left {
 		if left[i].Name != right[i].Name ||
-			!reflect.DeepEqual(left[i].Rrdatas, right[i].Rrdatas) ||
+			!reflect.DeepEqual(left[i].RrData, right[i].RrData) ||
 			left[i].Ttl != right[i].Ttl ||
 			left[i].Type != right[i].Type {
 			return false

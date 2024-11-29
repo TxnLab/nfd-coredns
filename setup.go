@@ -93,9 +93,9 @@ func nfdParse(c *caddy.Controller) (string, string, uint64, []string, error) {
 	if node == "" {
 		return "", "", 0, nil, c.Errf("no node")
 	}
-	// if len(nfdNameServers) == 0 {
-	// 	return "", "", 0, nil, c.Errf("no nameservers")
-	// }
+	if len(nfdNameServers) == 0 {
+		return "", "", 0, nil, c.Errf("no nameservers")
+	}
 	for i := range nfdNameServers {
 		if !strings.HasSuffix(nfdNameServers[i], ".") {
 			nfdNameServers[i] = nfdNameServers[i] + "."

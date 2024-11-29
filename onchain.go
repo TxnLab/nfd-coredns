@@ -9,10 +9,13 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 
 	"github.com/algorand/go-algorand-sdk/v2/client/v2/common/models"
@@ -21,7 +24,12 @@ import (
 	"github.com/mailgun/holster/v4/syncutil"
 )
 
-var errNfdNotFound = errors.New("nfd not found")
+var (
+	errNfdNotFound     = errors.New("nfd not found")
+	errNFdIncompatible = errors.New("nfd incompatible")
+	errNfdExpired      = errors.New("nfd expired")
+	errNfdNotOwned     = errors.New("nfd not owned")
+)
 
 type NFDProperties struct {
 	Internal    map[string]string `json:"internal"`
@@ -39,14 +47,24 @@ func (n *NfdPlugin) FetchNFDs(ctx context.Context, names []string) (map[string]N
 	for _, name := range names {
 		wg.Run(func(val interface{}) error {
 			name := val.(string)
-			id, err := n.FindNFDAppIDByName(ctx, name)
+			nfdId, err := n.FindNFDAppIDByName(ctx, name)
 			if err != nil {
 				return err
 			}
-			props, err := n.FetchNFD(ctx, id, false)
+			props, err := n.FetchNFD(ctx, nfdId, false, []string{"u.dns"})
 			if err != nil {
 				return err
 			}
+			if !IsContractVersionAtLeast(props.Internal["ver"], 3, 0) {
+				return errNFdIncompatible
+			}
+			if IsNFdExpired(props) {
+				return errNfdExpired
+			}
+			if !IsNfdOwned(nfdId, props) {
+				return errNfdNotOwned
+			}
+
 			lock.Lock()
 			retMap[name] = props
 			lock.Unlock()
@@ -71,7 +89,7 @@ func (n *NfdPlugin) FetchNFDs(ctx context.Context, names []string) (map[string]N
 	return retMap, nil
 }
 
-func (n *NfdPlugin) FetchNFD(ctx context.Context, nfdID uint64, internalOnly bool) (NFDProperties, error) {
+func (n *NfdPlugin) FetchNFD(ctx context.Context, nfdID uint64, internalOnly bool, propertyList []string) (NFDProperties, error) {
 	// Load the global state of this application
 	appData, err := n.Client.GetApplicationByID(nfdID).Do(ctx)
 	if err != nil {
@@ -80,7 +98,7 @@ func (n *NfdPlugin) FetchNFD(ctx context.Context, nfdID uint64, internalOnly boo
 	var boxData map[string][]byte
 	if !internalOnly {
 		// Now load all the box data (V2) in parallel
-		boxData, err = n.GetApplicationBoxes(ctx, nfdID)
+		boxData, err = n.GetApplicationBoxes(ctx, nfdID, propertyList)
 		if err != nil {
 			return NFDProperties{}, err
 		}
@@ -127,7 +145,7 @@ func (n *NfdPlugin) FindNFDAppIDByName(ctx context.Context, nfdName string) (uin
 	return nfdAppID, nil
 }
 
-func (n *NfdPlugin) GetApplicationBoxes(ctx context.Context, appID uint64) (map[string][]byte, error) {
+func (n *NfdPlugin) GetApplicationBoxes(ctx context.Context, appID uint64, propertyList []string) (map[string][]byte, error) {
 	var (
 		wg      syncutil.WaitGroup
 		boxData = map[string][]byte{}
@@ -142,6 +160,11 @@ func (n *NfdPlugin) GetApplicationBoxes(ctx context.Context, appID uint64) (map[
 
 	// Now fetch the data of all the boxes in parallel
 	for _, box := range boxes.Boxes {
+		if propertyList != nil {
+			if !slices.Contains(propertyList, string(box.Name)) {
+				continue
+			}
+		}
 		wg.Run(func(val interface{}) error {
 			boxName := val.([]byte)
 			boxValue, err := n.Client.GetApplicationBoxByName(appID, boxName).Do(ctx)
@@ -391,4 +414,47 @@ func MergeNFDProperties(properties map[string]string) map[string]string {
 		}
 	}
 	return mergedMap
+}
+
+var majMinReg = regexp.MustCompile(`^(?P<major>\d+)\.(?P<minor>\d+)`)
+
+func IsContractVersionAtLeast(version string, major, minor int) bool {
+	matches := majMinReg.FindStringSubmatch(version)
+	if matches == nil || len(matches) != 3 {
+		return false
+	}
+	var contractMajor, contractMinor int
+	if val := matches[majMinReg.SubexpIndex("major")]; val != "" {
+		contractMajor, _ = strconv.Atoi(val)
+	}
+	if val := matches[majMinReg.SubexpIndex("minor")]; val != "" {
+		contractMinor, _ = strconv.Atoi(val)
+	}
+	if contractMajor > major || (contractMajor >= major && contractMinor >= minor) {
+		return true
+	}
+	return false
+}
+
+func IsNFdExpired(props NFDProperties) bool {
+	intVal, _ := strconv.ParseUint(props.Internal["expirationTime"], 10, 64)
+	if intVal == 0 {
+		return false
+	} else {
+		var timeVal = time.Unix(int64(intVal), 0)
+		return time.Now().UTC().After(timeVal)
+	}
+	return false
+}
+
+func IsNfdOwned(nfdAppId uint64, props NFDProperties) bool {
+	sellAmt, _ := strconv.ParseUint(props.Internal["sellamt"], 10, 64)
+	if sellAmt != 0 {
+		return false // for sale
+	}
+	nfdAccount := crypto.GetApplicationAddress(nfdAppId).String()
+	if props.Internal["owner"] == nfdAccount {
+		return false
+	}
+	return true
 }

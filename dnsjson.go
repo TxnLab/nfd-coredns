@@ -2,8 +2,10 @@ package nfd_coredns
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/miekg/dns"
 )
@@ -15,38 +17,44 @@ type JsonRRs struct {
 type JsonRr struct {
 	// Name will be like @ (for origin - ie: patrick.algo.xyz., or a name like box which would
 	// represent box.patrick.algo.xyz
-	Name    string   `json:"name"`
-	Rrdatas []string `json:"rrdatas"`
-	Ttl     int      `json:"ttl,omitempty"`
-	Type    string   `json:"type"`
+	Name   string   `json:"name"`
+	RrData []string `json:"rrData"`
+	Ttl    int      `json:"ttl,omitempty"`
+	Type   string   `json:"type"`
 }
 
-/*
-	patrick.algo.xyz
-	---
-	@ 		A {ip address}
-	box 	A {ip address}
-	(becomes lookup of patrick.algo w/ 'box' name record box.patrick.algo
-*/
+func NfdToJsonRRs(_ context.Context, nfdProps NFDProperties) ([]JsonRr, error) {
+	dnsVal, found := nfdProps.UserDefined["dns"]
+	if !found {
+		return nil, fmt.Errorf("no dns property found")
+	}
+	var dnsResult []JsonRr
+	// unmarshal into dnsResult
+	err := json.Unmarshal([]byte(dnsVal), &dnsResult)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal dns property: %v", err)
+	}
+	return dnsResult, nil
+}
 
 func DnsRRsFromJsonRRs(jsonRecords []JsonRr, queryName string, rrType uint16) ([]dns.RR, error) {
 	var (
 		rrs = make([]dns.RR, 0, len(jsonRecords))
 	)
 
-	typeName, found := dns.TypeToString[uint16(rrType)]
+	typeName, found := dns.TypeToString[rrType]
 	if !found {
 		return nil, fmt.Errorf("failed to find type name for %d", rrType)
 	}
 	for _, jsonRecord := range jsonRecords {
-		if jsonRecord.Name != queryName || jsonRecord.Type != typeName {
+		if !strings.EqualFold(jsonRecord.Name, queryName) || !strings.EqualFold(jsonRecord.Type, typeName) {
 			continue
 		}
 		// compose as dns string for parsing
 		// ie: json of:
 		// {
 		//  "name": "example.com.",
-		//  "rrdatas": [
+		//  "rrData": [
 		//      "10 mail.example.com.",
 		//      "20 mail2.example.com."
 		//  ],
@@ -60,9 +68,10 @@ func DnsRRsFromJsonRRs(jsonRecords []JsonRr, queryName string, rrType uint16) ([
 		if jsonRecord.Ttl != 0 {
 			ttl = jsonRecord.Ttl
 		}
-		for _, rrdata := range jsonRecord.Rrdatas {
+		for _, rrdata := range jsonRecord.RrData {
 			dnsString := jsonRecord.Name + " " + strconv.Itoa(ttl) + " " + dns.ClassToString[dns.ClassINET] + " " + jsonRecord.Type + " "
 			dnsString += rrdata
+			log.Infof("dnsString: %s", dnsString)
 			rr, err := dns.NewRR(dnsString)
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse dns string: %s", dnsString)
@@ -73,14 +82,27 @@ func DnsRRsFromJsonRRs(jsonRecords []JsonRr, queryName string, rrType uint16) ([
 	return rrs, nil
 }
 
-func mergeJsonRrrs(ctx context.Context, base []JsonRr, segment []JsonRr) []JsonRr {
+func convertOriginRefs(_ context.Context, fqdn string, rrs []JsonRr) {
+	// walk the rr's and if name is @ - switch out to the fqdn
+	for i, rr := range rrs {
+		if rr.Name == "@" {
+			rrs[i].Name = dns.Fqdn(fqdn)
+		}
+		if strings.HasSuffix(rr.Name, ".xyz.") {
+			// trim off the xyz.
+			rrs[i].Name = strings.TrimSuffix(rr.Name, "xyz.")
+		}
+	}
+}
+
+func mergeJsonRrrs(_ context.Context, base []JsonRr, segment []JsonRr) []JsonRr {
 	// start with base data, then add entries from segment ONLY if base doesn't have the same name and type
 	// in any of its records
 	var ret = base
 	for _, segmentRecord := range segment {
 		found := false
 		for _, baseRecord := range ret {
-			if baseRecord.Name == segmentRecord.Name && baseRecord.Type == segmentRecord.Type {
+			if strings.EqualFold(baseRecord.Name, segmentRecord.Name) && strings.EqualFold(baseRecord.Type, segmentRecord.Type) {
 				found = true
 				break
 			}
