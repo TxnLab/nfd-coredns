@@ -3,250 +3,254 @@ package nfd_coredns
 import (
 	"context"
 	"errors"
+	"fmt"
+	"time"
 
-	"github.com/algorand/go-algorand-sdk/v2/client/v2/algod"
 	"github.com/miekg/dns"
 
 	"github.com/coredns/coredns/plugin"
 	clog "github.com/coredns/coredns/plugin/pkg/log"
+	"github.com/coredns/coredns/plugin/pkg/nonwriter"
 	"github.com/coredns/coredns/request"
+
+	"github.com/TxnLab/nfd-coredns/internal/nfd"
 )
 
 // NfdPlugin is a plugin that returns information held in the Ethereum Name Service.
 type NfdPlugin struct {
 	Next           plugin.Handler
-	Client         *algod.Client
-	RegistryID     uint64
+	Forwarder      plugin.Handler
+	NfdCache       *nfd.Cache
 	nfdNameServers []string
 }
 
+// Result of a lookup
+type Result int
+
 const (
 	pluginName = "nfd"
+
+	// Success is a successful lookup.
+	Success Result = iota
+	// NameError indicates a nameerror
+	NameError
+	// Delegation indicates the lookup resulted in a delegation.
+	Delegation
+	// NoData indicates the lookup resulted in a NODATA.
+	NoData
+	// ServerFailure indicates a server failure during the lookup.
+	ServerFailure
+	// NotImplemented is for unsupported RR types
+	NotImplemented
 )
 
 var (
 	log = clog.NewWithPlugin(pluginName)
 	//defaultTtl = time.Duration(5 * time.Minute).Seconds()
 	defaultTtl = 5 * 60
+
+	errNotImplemented = errors.New("not implemented")
 )
 
-// Name implements the Handler interface.
+// Name implements the CoreDNS plugin.Handler interface.
 func (n *NfdPlugin) Name() string { return pluginName }
 
-// ServeDNS implements the plugin.Handler interface. This method gets called when example is used
-// in a Server.
+// ServeDNS implements the CoreDNS plugin.Handler interface
 func (n *NfdPlugin) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) (int, error) {
-	var (
-		err error
-	)
 	state := request.Request{W: w, Req: r}
 
-	zone := plugin.Zones([]string{"algo.xyz."}).Matches(state.Name())
-	if zone == "" {
+	a := new(dns.Msg)
+	a.SetReply(r)
+	a.Compress = true
+	a.Authoritative = true
+	var result Result
+	a.Answer, a.Ns, a.Extra, result = n.Lookup(ctx, state)
+	switch result {
+	case Success:
+		state.SizeAndDo(a)
+		w.WriteMsg(a)
+		return dns.RcodeSuccess, nil
+	case NoData:
+		if n.Next == nil {
+			log.Debugf("No data for %s, no next plugin", state.Name())
+			state.SizeAndDo(a)
+			w.WriteMsg(a)
+			return dns.RcodeSuccess, nil
+		}
+		log.Debugf("No data for %s, delegating to next plugin", state.Name())
 		return plugin.NextOrFailure(n.Name(), n.Next, ctx, w, r)
+	case NameError:
+		log.Warningf("name error for %s", state.Name())
+		a.Rcode = dns.RcodeNameError
+	case ServerFailure:
+		log.Warningf("server failure for %s", state.Name())
+		a.Rcode = dns.RcodeServerFailure
+		return dns.RcodeServerFailure, nil
+	case NotImplemented:
+		return dns.RcodeNotImplemented, nil
 	}
+	// Unknown result...
+	return dns.RcodeServerFailure, nil
+}
 
+func (n *NfdPlugin) Lookup(ctx context.Context, state request.Request) ([]dns.RR, []dns.RR, []dns.RR, Result) {
+	var (
+		err        error
+		qnameSplit []string
+	)
 	qname := state.Name()
 	qtype := state.QType()
 
-	m := new(dns.Msg)
-	m.SetReply(r)
-	m.Authoritative = true
-	m.Compress = true
-	m.Rcode = dns.RcodeSuccess
-
-	// parse out the domain - needs to be [...].{root}.algo.xyz at minimum
-	qnameSplit := dns.SplitDomainName(qname)
-	log.Infof("qnameSplit: %#+v", qnameSplit)
-	if len(qnameSplit) < 3 || qnameSplit[len(qnameSplit)-2] != "algo" || qnameSplit[len(qnameSplit)-1] != "xyz" {
-		return plugin.NextOrFailure(n.Name(), n.Next, ctx, w, r)
+	// parse out the domain into parts (won't have . terminator)
+	qnameSplit = dns.SplitDomainName(qname)
+	log.Infof("Lookup: qname: %s qtype: %s", qname, dns.TypeToString[qtype])
+	if qtype == dns.TypeSOA || qtype == dns.TypeNS {
+		rrs, err := n.Query([]nfd.JsonRr{}, qname, qtype)
+		if err != nil {
+			return nil, nil, nil, ServerFailure
+		}
+		if len(rrs) == 0 {
+			return nil, nil, nil, NoData
+		}
+		return rrs, nil, nil, Success
+	}
+	// needs to be [...].{root}.algo at minimum unless NS or SOA query
+	if len(qnameSplit) < 2 || qnameSplit[len(qnameSplit)-1] != "algo" {
+		// We should only have gotten here if via internal CNAME -> lookup process - so do resolve via
+		// external forwarder (google)
+		return n.LookupViaForwarder(ctx, state)
 	}
 
-	// handle what types we do don't support right off the bat
-	switch dns.TypeToString[qtype] {
-	case "TXT":
-	default:
-		m.Rcode = dns.RcodeNotImplemented
-		w.WriteMsg(m)
-		return dns.RcodeNotImplemented, err
-	}
-
-	// Now fetch the root (and possibly segment) NFDs
+	// Now fetch the root (and possibly segment) NFDs to determine which NFD the data
+	// is being fetched from root (direclty) - root w/ nested data, or segment w or w/o further sub-data
 	var (
-		nfdRootName     string
-		segmentBasename string
-		segmentFQName   string
-		nfdsToFetch     []string
-		nfdRoot         NFDProperties
-		nfdSegment      NFDProperties
+		answerRrs     []dns.RR
+		authorityRrs  []dns.RR
+		additionalRrs []dns.RR
 	)
-	nfdRootName = qnameSplit[len(qnameSplit)-3] + ".algo"
-	nfdsToFetch = append(nfdsToFetch, nfdRootName)
-	if len(qnameSplit) > 3 {
-		segmentBasename = qnameSplit[len(qnameSplit)-4]
-		segmentFQName = segmentBasename + "." + nfdRootName
-		nfdsToFetch = append(nfdsToFetch, segmentFQName)
-		// ie: mail.patrick.algo.xyz -  segmentBasename would be 'mail'
-		// it could be a segment, or a record but either way the segment HAS to be looked up to determine
-		// if it exists, and if so, does it have same owner.
+	mergedJsonRrs, err := n.NfdCache.GetNfdRRs(ctx, log, qname)
+	if errors.Is(err, nfd.ErrNfdNotFound) || (err == nil && mergedJsonRrs == nil) {
+		return nil, nil, nil, NameError
 	}
-	nfdData, err := n.FetchNFDs(ctx, nfdsToFetch)
-	//log.Infof("nfdData: %#+v", nfdData)
-	if errors.Is(err, errNfdNotFound) {
-		log.Warningf("nfds [%v] not found", nfdsToFetch)
-		m.Rcode = dns.RcodeNameError
-		w.WriteMsg(m)
-		return dns.RcodeNameError, nil
-	}
-	nfdRoot = nfdData[nfdRootName]
-	if nfdRoot.Internal["name"] != nfdRootName {
-		log.Errorf("nfdRoot.Internal.name: %s != %s", nfdRoot.Internal["name"], nfdRootName)
-		return plugin.NextOrFailure(n.Name(), n.Next, ctx, w, r)
+	if err != nil {
+		log.Errorf("error getting NFDs: %v", err)
+		return nil, nil, nil, ServerFailure
 	}
 
-	// TODO - fetch json RR's from root NFD
-	var (
-		baseJsonRrs    []JsonRr
-		segmentJsonRrs []JsonRr
-	)
+	// If we aren't asking for a CNAME then check for one to see if we need
+	// to recurse
+	if qtype != dns.TypeCNAME {
+		cnameRrs, err := n.Query(mergedJsonRrs, qname, dns.TypeCNAME)
+		if err != nil {
+			return nil, nil, nil, ServerFailure
+		}
+		if len(cnameRrs) > 0 {
+			// got cname - ie: user queried foo.bar (an A qtype) - has cname - and foo.bar points to foo.baz
+			// so we'll do original A query on foo.baz
+			answerRrs = append(answerRrs, cnameRrs...)
 
-	if segmentBasename != "" {
-		var segmentFound bool
-		nfdSegment, segmentFound = nfdData[segmentFQName]
-		if segmentFound {
-			// segment found - it MUST be same owner !!! so... can't set this record..
-			// ie: mail.patrick.algo.xyz - but mail isn't owned by patrick
-			// so we should act like it doesn't exist.
-			if nfdSegment.Internal["owner.a"] != nfdRoot.Internal["owner.a"] {
-				log.Warningf("nfdSegment.Internal.owner.a: %s != %s", nfdSegment.Internal["owner.a"], nfdRoot.Internal["owner.a"])
-				return plugin.NextOrFailure(n.Name(), n.Next, ctx, w, r)
+			cnameRec, ok := cnameRrs[0].(*dns.CNAME)
+			if !ok {
+				log.Errorf("error converting CNAME to dns.RR: val: %v", cnameRrs[0])
+				return nil, nil, nil, ServerFailure
 			}
-			// fetch json RRs from segment
-			segmentJsonRrs = []JsonRr{}
+			log.Infof("cnameRec: %#+v", cnameRec)
+			targetReq := state.Req.Copy()
+			targetReq.Question[0].Name = cnameRec.Target
+			targetReq.Question[0].Qtype = qtype
+			targetReqState := request.Request{W: state.W, Req: targetReq}
+			// recurse...
+			targetAnswerRrs, targetAuthorityRrs, targetAdditionalRrs, targetResult := n.Lookup(ctx, targetReqState)
+			if targetResult == Success {
+				log.Infof("cname derived lookup succeeded")
+				answerRrs = append(answerRrs, targetAnswerRrs...)
+				authorityRrs = append(authorityRrs, targetAuthorityRrs...)
+				additionalRrs = append(additionalRrs, targetAdditionalRrs...)
+			}
+			log.Warning("cname derived lookup failed - returning original answerRrs")
+			return answerRrs, authorityRrs, additionalRrs, targetResult
 		}
 	}
-	baseJsonRrs = []JsonRr{
-		{
-			Name: "patrick.algo.xyz.",
-			Rrdatas: []string{
-				"google-site-verification=Rfkw7MGNQiBhlpxWqRRzuWulK1ZTnQUlTrBTwDA7xv0",
-				`"v=spf1 mx include:netblocks.dreamhost.com include:relay.mailchannels.net -all"`,
-				"MS=ms44313055",
-			},
-			Ttl:  60,
-			Type: "TXT",
-		},
-	}
-	segmentJsonRrs = []JsonRr{
-		{
-			Name:    "foo.patrick.algo.xyz.",
-			Rrdatas: []string{"nfd-verify=xxxx"},
-			Ttl:     60,
-			Type:    "TXT",
-		},
-	}
 
-	mergedJsonRrs := mergeJsonRrrs(ctx, baseJsonRrs, segmentJsonRrs)
-
-	retRRs, err := DnsRRsFromJsonRRs(mergedJsonRrs, qname, qtype)
+	// Match the query type against our combined records - name and qtype have to match
+	rrs, err := n.Query(mergedJsonRrs, qname, qtype)
 	if err != nil {
-		log.Errorf("error converting jsonRRs to dnsRRs: %v", err)
-		return plugin.NextOrFailure(n.Name(), n.Next, ctx, w, r)
+		if errors.Is(err, errNotImplemented) {
+			return nil, nil, nil, NotImplemented
+		}
+		return nil, nil, nil, ServerFailure
 	}
-	//log.Infof("retRRs: %#+v", retRRs)
+	if len(rrs) == 0 {
+		return nil, nil, nil, NoData
+	}
+	answerRrs = append(answerRrs, rrs...)
+	if len(answerRrs) == 0 {
+		return answerRrs, authorityRrs, additionalRrs, NoData
+	}
 
-	m.Answer = retRRs
-	w.WriteMsg(m)
-	return dns.RcodeSuccess, nil
+	return answerRrs, authorityRrs, additionalRrs, Success
 }
 
-//func (n *NfdPlugin) handleTXT(name string, domain string, contentHash []byte) ([]dns.RR, error) {
-//	var results []dns.RR
-//
-//	log.Infof("name: %s, domain: %s", name, domain)
-//	if domain != "." {
-//		return results, fmt.Errorf("domain:%s not expected", domain)
-//	}
-//	trimmedName := strings.TrimSuffix(name, ".")
-//	nfdId, err := n.FindNFDAppIDByName(context.Background(), trimmedName)
-//	if err != nil {
-//		return results, err
-//	}
-//	nfd, err := n.FetchNFD(context.Background(), nfdId, false)
-//	if err != nil {
-//		return results, err
-//	}
-//	if txtRec := nfd.UserDefined["txt"]; txtRec != "" {
-//		result, err := dns.NewRR(fmt.Sprintf("%s 300 IN TXT \"%s\"", name, txtRec))
-//		if err != nil {
-//			return results, err
-//		}
-//		results = append(results, result)
-//	}
-//	//return &dns.TXT{Hdr: dns.RR_Header{Name: name, Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: s.TTL}, Txt: split255(s.Text)}
-//
-//	results = append(results, &dns.TXT{
-//		Hdr: dns.RR_Header{
-//			Name:   name,
-//			Rrtype: dns.TypeTXT,
-//			Class:  dns.ClassINET,
-//			Ttl:    uint32(defaultTtl),
-//		},
-//		Txt: []string{"dummy val"},
-//	})
-//
-//	// if isRealOnChainDomain(name, domain) {
-//	// 	ethDomain := strings.TrimSuffix(domain, ".")
-//	// 	resolver, err := n.getResolver(ethDomain)
-//	// 	if err != nil {
-//	// 		log.Warnf("error obtaining resolver for %s: %v", ethDomain, err)
-//	// 		return results, nil
-//	// 	}
-//	//
-//	// 	address, err := resolver.Address()
-//	// 	if err != nil {
-//	// 		if err.Error() != "abi: unmarshalling empty output" {
-//	// 			return results, err
-//	// 		}
-//	// 		return results, nil
-//	// 	}
-//	//
-//	// 	if address != ens.UnknownAddress {
-//	// 		result, err := dns.NewRR(fmt.Sprintf("%s 3600 IN TXT \"a=%s\"", name, address.Hex()))
-//	// 		if err != nil {
-//	// 			return results, err
-//	// 		}
-//	// 		results = append(results, result)
-//	// 	}
-//	//
-//	// 	result, err := dns.NewRR(fmt.Sprintf("%s 3600 IN TXT \"contenthash=0x%x\"", name, contentHash))
-//	// 	if err != nil {
-//	// 		return results, err
-//	// 	}
-//	// 	results = append(results, result)
-//	//
-//	// 	// Also provide dnslink for compatibility with older IPFS gateways
-//	// 	contentHashStr, err := ens.ContenthashToString(contentHash)
-//	// 	if err != nil {
-//	// 		return results, err
-//	// 	}
-//	// 	result, err = dns.NewRR(fmt.Sprintf("%s 3600 IN TXT \"dnslink=%s\"", name, contentHashStr))
-//	// 	if err != nil {
-//	// 		return results, nil
-//	// 	}
-//	// 	results = append(results, result)
-//	// } else if isRealOnChainDomain(strings.TrimPrefix(name, "_dnslink."), domain) {
-//	// 	// This is a request to _dnslink.<domain>, return the DNS link record.
-//	// 	contentHashStr, err := ens.ContenthashToString(contentHash)
-//	// 	if err != nil {
-//	// 		return results, err
-//	// 	}
-//	// 	result, err := dns.NewRR(fmt.Sprintf("%s 3600 IN TXT \"dnslink=%s\"", name, contentHashStr))
-//	// 	if err != nil {
-//	// 		return results, err
-//	// 	}
-//	// 	results = append(results, result)
-//	// }
-//
-//	return results, nil
-//}
+// Query  the query type against our combined records - name and qtype have to match
+func (n *NfdPlugin) Query(jsonRecords []nfd.JsonRr, queryName string, qType uint16) ([]dns.RR, error) {
+	switch qType {
+	case dns.TypeSOA:
+		return n.handleSOA(queryName)
+	case dns.TypeNS:
+		return n.handleNS(queryName)
+	case dns.TypeA,
+		dns.TypeAAAA,
+		dns.TypeCNAME,
+		dns.TypeTXT,
+		dns.TypeMX,
+		dns.TypeCAA:
+		return nfd.DnsRRsFromJsonRRs(jsonRecords, queryName, qType)
+	default:
+		return nil, errNotImplemented
+	}
+}
+
+func (n *NfdPlugin) handleSOA(qName string) ([]dns.RR, error) {
+	now := time.Now()
+	ser := ((now.Hour()*3600 + now.Minute()) * 100) / 86400
+	dateStr := fmt.Sprintf("%04d%02d%02d%02d", now.Year(), now.Month(), now.Day(), ser)
+
+	var results []dns.RR
+	if len(n.nfdNameServers) > 0 {
+		// Create a synthetic SOA record (borrowed from coreens eg)
+		result, err := dns.NewRR(fmt.Sprintf("%s 10800 IN SOA %s hostmaster.%s %s 3600 600 1209600 300", qName, n.nfdNameServers[0], n.nfdNameServers[0], dateStr))
+		if err != nil {
+			return results, err
+		}
+		results = append(results, result)
+	}
+	return results, nil
+}
+
+func (n *NfdPlugin) handleNS(qname string) ([]dns.RR, error) {
+	results := make([]dns.RR, 0)
+	for _, nameserver := range n.nfdNameServers {
+		result, err := dns.NewRR(fmt.Sprintf("%s 3600 IN NS %s", qname, nameserver))
+		if err != nil {
+			return results, err
+		}
+		results = append(results, result)
+	}
+
+	return results, nil
+}
+
+func (n *NfdPlugin) LookupViaForwarder(ctx context.Context, state request.Request) ([]dns.RR, []dns.RR, []dns.RR, Result) {
+	writer := nonwriter.New(state.W)
+
+	code, err := n.Forwarder.ServeDNS(ctx, writer, state.Req)
+	if err != nil {
+		log.Errorf("error resolving via forwarder: %v", err)
+		return nil, nil, nil, ServerFailure
+	}
+	if code != dns.RcodeSuccess {
+		log.Warningf("forwarder returned: %s", dns.RcodeToString[code])
+		return nil, nil, nil, ServerFailure
+	}
+	return writer.Msg.Answer, nil, writer.Msg.Extra, Success
+}
