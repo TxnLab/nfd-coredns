@@ -1,4 +1,4 @@
-package nfd_coredns
+package nfd
 
 import (
 	"context"
@@ -101,9 +101,9 @@ func TestMergeJsonRrrs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := mergeJsonRrrs(context.Background(), tt.base, tt.segment)
+			got := MergeJsonRrrs(context.Background(), tt.base, tt.segment)
 			if !equal(got, tt.want) {
-				t.Errorf("mergeJsonRrrs() = %v, want %v", got, tt.want)
+				t.Errorf("MergeJsonRrrs() = %v, want %v", got, tt.want)
 			}
 		})
 	}

@@ -1,4 +1,4 @@
-package nfd_coredns
+package nfd
 
 import (
 	"context"
@@ -37,6 +37,7 @@ func NfdToJsonRRs(_ context.Context, nfdProps NFDProperties) ([]JsonRr, error) {
 	return dnsResult, nil
 }
 
+// DnsRRsFromJsonRRs returns RR's that match the given name and type (from pre-merged root/segment data)
 func DnsRRsFromJsonRRs(jsonRecords []JsonRr, queryName string, rrType uint16) ([]dns.RR, error) {
 	var (
 		rrs = make([]dns.RR, 0, len(jsonRecords))
@@ -71,7 +72,7 @@ func DnsRRsFromJsonRRs(jsonRecords []JsonRr, queryName string, rrType uint16) ([
 		for _, rrdata := range jsonRecord.RrData {
 			dnsString := jsonRecord.Name + " " + strconv.Itoa(ttl) + " " + dns.ClassToString[dns.ClassINET] + " " + jsonRecord.Type + " "
 			dnsString += rrdata
-			log.Infof("dnsString: %s", dnsString)
+			//nfd_coredns.log.Infof("dnsString: %s", dnsString)
 			rr, err := dns.NewRR(dnsString)
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse dns string: %s", dnsString)
@@ -82,7 +83,7 @@ func DnsRRsFromJsonRRs(jsonRecords []JsonRr, queryName string, rrType uint16) ([
 	return rrs, nil
 }
 
-func convertOriginRefs(_ context.Context, fqdn string, rrs []JsonRr) {
+func ConvertOriginRefs(_ context.Context, fqdn string, rrs []JsonRr) {
 	// walk the rr's and if name is @ - switch out to the fqdn
 	for i, rr := range rrs {
 		if rr.Name == "@" {
@@ -95,7 +96,7 @@ func convertOriginRefs(_ context.Context, fqdn string, rrs []JsonRr) {
 	}
 }
 
-func mergeJsonRrrs(_ context.Context, base []JsonRr, segment []JsonRr) []JsonRr {
+func MergeJsonRrrs(_ context.Context, base []JsonRr, segment []JsonRr) []JsonRr {
 	// start with base data, then add entries from segment ONLY if base doesn't have the same name and type
 	// in any of its records
 	var ret = base

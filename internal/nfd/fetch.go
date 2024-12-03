@@ -1,4 +1,4 @@
-package nfd_coredns
+package nfd
 
 import (
 	"bytes"
@@ -18,6 +18,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/algorand/go-algorand-sdk/v2/client/v2/algod"
 	"github.com/algorand/go-algorand-sdk/v2/client/v2/common/models"
 	"github.com/algorand/go-algorand-sdk/v2/crypto"
 	"github.com/algorand/go-algorand-sdk/v2/types"
@@ -25,10 +26,11 @@ import (
 )
 
 var (
-	errNfdNotFound     = errors.New("nfd not found")
-	errNFdIncompatible = errors.New("nfd incompatible")
-	errNfdExpired      = errors.New("nfd expired")
-	errNfdNotOwned     = errors.New("nfd not owned")
+	ErrNfdNotFound       = errors.New("nfd not found")
+	ErrNFdIncompatible   = errors.New("nfd incompatible")
+	ErrNfdExpired        = errors.New("nfd expired")
+	ErrNfdNotOwned       = errors.New("nfd not owned")
+	ErrNfdSplitOwnership = errors.New("nfd segment has different owner than root")
 )
 
 type NFDProperties struct {
@@ -37,7 +39,16 @@ type NFDProperties struct {
 	Verified    map[string]string `json:"verified"`
 }
 
-func (n *NfdPlugin) FetchNFDs(ctx context.Context, names []string) (map[string]NFDProperties, error) {
+type nfdFetcher struct {
+	Client     *algod.Client
+	RegistryID uint64
+}
+
+func newNfdFetcher(client *algod.Client, registryID uint64) *nfdFetcher {
+	return &nfdFetcher{Client: client, RegistryID: registryID}
+}
+
+func (n *nfdFetcher) FetchNfdDnsVal(ctx context.Context, names []string) (map[string]NFDProperties, error) {
 	var (
 		wg     syncutil.WaitGroup
 		lock   sync.Mutex
@@ -55,15 +66,6 @@ func (n *NfdPlugin) FetchNFDs(ctx context.Context, names []string) (map[string]N
 			if err != nil {
 				return err
 			}
-			if !IsContractVersionAtLeast(props.Internal["ver"], 3, 0) {
-				return errNFdIncompatible
-			}
-			if IsNFdExpired(props) {
-				return errNfdExpired
-			}
-			if !IsNfdOwned(nfdId, props) {
-				return errNfdNotOwned
-			}
 
 			lock.Lock()
 			retMap[name] = props
@@ -74,31 +76,31 @@ func (n *NfdPlugin) FetchNFDs(ctx context.Context, names []string) (map[string]N
 	}
 	errs := wg.Wait()
 	if errs != nil {
-		// return errNfdNotFound only if ALL errs are errNfdNotFound
+		// return ErrNfdNotFound only if ALL errs are ErrNfdNotFound
 		for _, err := range errs {
-			if !errors.Is(err, errNfdNotFound) {
+			if !errors.Is(err, ErrNfdNotFound) {
 				return nil, err
 			}
 		}
 		// all errors were not found
 		if len(errs) == len(names) {
-			return nil, errNfdNotFound
+			return nil, ErrNfdNotFound
 		}
 		// some were found
 	}
 	return retMap, nil
 }
 
-func (n *NfdPlugin) FetchNFD(ctx context.Context, nfdID uint64, internalOnly bool, propertyList []string) (NFDProperties, error) {
+func (n *nfdFetcher) FetchNFD(ctx context.Context, nfdId uint64, internalOnly bool, propertyList []string) (NFDProperties, error) {
 	// Load the global state of this application
-	appData, err := n.Client.GetApplicationByID(nfdID).Do(ctx)
+	appData, err := n.Client.GetApplicationByID(nfdId).Do(ctx)
 	if err != nil {
 		return NFDProperties{}, err
 	}
 	var boxData map[string][]byte
 	if !internalOnly {
 		// Now load all the box data (V2) in parallel
-		boxData, err = n.GetApplicationBoxes(ctx, nfdID, propertyList)
+		boxData, err = n.GetApplicationBoxes(ctx, nfdId, propertyList)
 		if err != nil {
 			return NFDProperties{}, err
 		}
@@ -109,10 +111,20 @@ func (n *NfdPlugin) FetchNFD(ctx context.Context, nfdID uint64, internalOnly boo
 	// verified won't be that long - but once v2 it'll all be in single values
 	properties.UserDefined = MergeNFDProperties(properties.UserDefined)
 
+	if !IsContractVersionAtLeast(properties.Internal["ver"], 3, 0) {
+		return NFDProperties{}, ErrNFdIncompatible
+	}
+	if IsNFdExpired(properties) {
+		return NFDProperties{}, ErrNfdExpired
+	}
+	if !IsNfdOwned(nfdId, properties) {
+		return NFDProperties{}, ErrNfdNotOwned
+	}
+
 	return properties, nil
 }
 
-func (n *NfdPlugin) FindNFDAppIDByName(ctx context.Context, nfdName string) (uint64, error) {
+func (n *nfdFetcher) FindNFDAppIDByName(ctx context.Context, nfdName string) (uint64, error) {
 	// First try to resolve via V2
 	boxValue, err := n.Client.GetApplicationBoxByName(n.RegistryID, GetRegistryBoxNameForNFD(nfdName)).Do(ctx)
 	if err == nil {
@@ -133,19 +145,19 @@ func (n *NfdPlugin) FindNFDAppIDByName(ctx context.Context, nfdName string) (uin
 	account, err := n.Client.AccountApplicationInformation(address.String(), n.RegistryID).Do(ctx)
 	if err != nil {
 		if strings.Contains(err.Error(), "404") {
-			return 0, errNfdNotFound
+			return 0, ErrNfdNotFound
 		}
 		return 0, fmt.Errorf("failed to get account data for account:%s : %w", address, err)
 	}
 	// We found our registry contract in the local state of the account
 	nfdAppID, _ := FetchBToIFromState(account.AppLocalState.KeyValue, "i.appid")
 	if nfdAppID == 0 {
-		return 0, errNfdNotFound
+		return 0, ErrNfdNotFound
 	}
 	return nfdAppID, nil
 }
 
-func (n *NfdPlugin) GetApplicationBoxes(ctx context.Context, appID uint64, propertyList []string) (map[string][]byte, error) {
+func (n *nfdFetcher) GetApplicationBoxes(ctx context.Context, appID uint64, propertyList []string) (map[string][]byte, error) {
 	var (
 		wg      syncutil.WaitGroup
 		boxData = map[string][]byte{}
