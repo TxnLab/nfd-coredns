@@ -14,10 +14,10 @@ import (
 )
 
 func init() {
-	plugin.Register(pluginName, setupNFD)
+	plugin.Register(pluginName, setupNfd)
 }
 
-func setupNFD(c *caddy.Controller) error {
+func setupNfd(c *caddy.Controller) error {
 	node, token, registryID, nfdNameServers, err := nfdParse(c)
 	if err != nil {
 		return plugin.Error(pluginName, err)

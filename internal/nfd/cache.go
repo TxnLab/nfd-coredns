@@ -7,9 +7,10 @@ import (
 	"time"
 
 	"github.com/algorand/go-algorand-sdk/v2/client/v2/algod"
-	clog "github.com/coredns/coredns/plugin/pkg/log"
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/miekg/dns"
+
+	clog "github.com/coredns/coredns/plugin/pkg/log"
 )
 
 type NfdCache struct {
@@ -21,8 +22,8 @@ type NfdCache struct {
 func NewNfdCache(client *algod.Client, registryID uint64) *NfdCache {
 	return &NfdCache{
 		nfdFetcher: newNfdFetcher(client, registryID),
-		nfdCache:   expirable.NewLRU[string, NFDProperties](50000, nil, 1*time.Minute),
-		rrCache:    expirable.NewLRU[string, []JsonRr](50000, nil, 1*time.Minute),
+		nfdCache:   expirable.NewLRU[string, NFDProperties](50000, nil, 5*time.Minute),
+		rrCache:    expirable.NewLRU[string, []JsonRr](50000, nil, 5*time.Minute),
 	}
 }
 

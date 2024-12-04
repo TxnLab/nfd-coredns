@@ -144,13 +144,13 @@ func (n *NfdPlugin) Lookup(ctx context.Context, state request.Request) ([]dns.RR
 			// got cname - ie: user queried foo.bar (an A qtype) - has cname - and foo.bar points to foo.baz
 			// so we'll do original A query on foo.baz
 			answerRrs = append(answerRrs, cnameRrs...)
-			log.Infof("cnameRrs: %#+v", cnameRrs)
 
 			cnameRec, ok := cnameRrs[0].(*dns.CNAME)
 			if !ok {
 				log.Errorf("error converting CNAME to dns.RR: val: %v", cnameRrs[0])
 				return nil, nil, nil, ServerFailure
 			}
+			log.Infof("cnameRec: %#+v", cnameRec)
 			targetReq := state.Req.Copy()
 			targetReq.Question[0].Name = cnameRec.Target
 			targetReq.Question[0].Qtype = qtype
