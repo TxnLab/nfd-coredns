@@ -10,6 +10,7 @@ import (
 
 	"github.com/coredns/coredns/plugin"
 	clog "github.com/coredns/coredns/plugin/pkg/log"
+	"github.com/coredns/coredns/plugin/pkg/nonwriter"
 	"github.com/coredns/coredns/request"
 
 	"github.com/TxnLab/nfd-coredns/internal/nfd"
@@ -18,6 +19,7 @@ import (
 // NfdPlugin is a plugin that returns information held in the Ethereum Name Service.
 type NfdPlugin struct {
 	Next           plugin.Handler
+	Forwarder      plugin.Handler
 	NfdCache       *nfd.NfdCache
 	nfdNameServers []string
 }
@@ -50,11 +52,10 @@ var (
 	errNotImplemented = errors.New("not implemented")
 )
 
-// Name implements the Handler interface.
+// Name implements the CoreDNS plugin.Handler interface.
 func (n *NfdPlugin) Name() string { return pluginName }
 
-// ServeDNS implements the plugin.Handler interface. This method gets called when example is used
-// in a Server.
+// ServeDNS implements the CoreDNS plugin.Handler interface
 func (n *NfdPlugin) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) (int, error) {
 	state := request.Request{W: w, Req: r}
 
@@ -99,6 +100,8 @@ func (n *NfdPlugin) Lookup(ctx context.Context, state request.Request) ([]dns.RR
 	qname := state.Name()
 	qtype := state.QType()
 
+	// parse out the domain into parts (won't have . terminator)
+	qnameSplit = dns.SplitDomainName(qname)
 	log.Infof("Lookup: qname: %s qtype: %s", qname, dns.TypeToString[qtype])
 	if qtype == dns.TypeSOA || qtype == dns.TypeNS {
 		rrs, err := n.Query([]nfd.JsonRr{}, qname, qtype)
@@ -110,11 +113,10 @@ func (n *NfdPlugin) Lookup(ctx context.Context, state request.Request) ([]dns.RR
 		}
 		return rrs, nil, nil, Success
 	}
-	// parse out the domain - needs to be [...].{root}.algo at minimum unless NS or SOA query
-	qnameSplit = dns.SplitDomainName(qname)
-	log.Infof("type:%s qnameSplit: %#+v", dns.TypeToString[qtype], qnameSplit)
+	// needs to be [...].{root}.algo at minimum unless NS or SOA query
 	if len(qnameSplit) < 2 || qnameSplit[len(qnameSplit)-1] != "algo" {
-		return nil, nil, nil, NameError
+		// We should only have gotten here if via internal CNAME -> lookup process - so do resolve via external forwarder (google)
+		return n.LookupViaForwarder(ctx, state)
 	}
 
 	// Now fetch the root (and possibly segment) NFDs to determine which NFD the data
@@ -234,4 +236,47 @@ func (n *NfdPlugin) handleNS(qname string) ([]dns.RR, error) {
 	}
 
 	return results, nil
+}
+
+func (n *NfdPlugin) LookupViaForwarder(ctx context.Context, state request.Request) ([]dns.RR, []dns.RR, []dns.RR, Result) {
+	writer := nonwriter.New(state.W)
+
+	code, err := n.Forwarder.ServeDNS(ctx, writer, state.Req)
+	if err != nil {
+		log.Errorf("error resolving via forwarder: %v", err)
+		return nil, nil, nil, ServerFailure
+	}
+	if code != dns.RcodeSuccess {
+		log.Warningf("forwarder returned: %s", dns.RcodeToString[code])
+		return nil, nil, nil, ServerFailure
+	}
+	return writer.Msg.Answer, nil, writer.Msg.Extra, Success
+	//return nil, nil, nil, Success
+	//
+	//a.Answer, a.Ns, a.Extra, result = n.Lookup(ctx, state)
+	//switch result {
+	//case Success:
+	//	state.SizeAndDo(a)
+	//	w.WriteMsg(a)
+	//	return dns.RcodeSuccess, nil
+	//case NoData, NameError:
+	//	if n.Next == nil {
+	//		log.Infof("No data for %s, no next plugin", state.Name())
+	//		state.SizeAndDo(a)
+	//		w.WriteMsg(a)
+	//		return dns.RcodeSuccess, nil
+	//	}
+	//	log.Infof("No data for %s, delegating to next plugin", state.Name())
+	//	return plugin.NextOrFailure(n.Name(), n.Next, ctx, w, r)
+	////case NameError:
+	////	a.Rcode = dns.RcodeNameError
+	//case ServerFailure:
+	//	log.Warningf("server failure for %s", state.Name())
+	//	a.Rcode = dns.RcodeServerFailure
+	//	return dns.RcodeServerFailure, nil
+	//case NotImplemented:
+	//	return dns.RcodeNotImplemented, nil
+	//}
+	//// Unknown result...
+	//return dns.RcodeServerFailure, nil
 }

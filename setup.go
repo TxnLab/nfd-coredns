@@ -7,10 +7,12 @@ import (
 	"github.com/algorand/go-algorand-sdk/v2/client/v2/algod"
 	"github.com/coredns/caddy"
 
+	"github.com/TxnLab/nfd-coredns/internal/nfd"
 	"github.com/coredns/coredns/core/dnsserver"
 	"github.com/coredns/coredns/plugin"
-
-	"github.com/TxnLab/nfd-coredns/internal/nfd"
+	"github.com/coredns/coredns/plugin/forward"
+	"github.com/coredns/coredns/plugin/pkg/proxy"
+	"github.com/coredns/coredns/plugin/pkg/transport"
 )
 
 func init() {
@@ -28,8 +30,13 @@ func setupNfd(c *caddy.Controller) error {
 	}
 
 	dnsserver.GetConfig(c).AddPlugin(func(next plugin.Handler) plugin.Handler {
+		forwarder := forward.New()
+		forwarder.Next = next
+		forwarder.SetProxy(proxy.NewProxy("forward", "8.8.8.8:53", transport.DNS))
+
 		return &NfdPlugin{
 			Next:           next,
+			Forwarder:      forwarder,
 			NfdCache:       nfd.NewNfdCache(algoClient, registryID),
 			nfdNameServers: nfdNameServers,
 		}
