@@ -20,7 +20,7 @@ import (
 type NfdPlugin struct {
 	Next           plugin.Handler
 	Forwarder      plugin.Handler
-	NfdCache       *nfd.NfdCache
+	NfdCache       *nfd.Cache
 	nfdNameServers []string
 }
 
@@ -70,17 +70,18 @@ func (n *NfdPlugin) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.M
 		state.SizeAndDo(a)
 		w.WriteMsg(a)
 		return dns.RcodeSuccess, nil
-	case NoData, NameError:
+	case NoData:
 		if n.Next == nil {
-			log.Infof("No data for %s, no next plugin", state.Name())
+			log.Debugf("No data for %s, no next plugin", state.Name())
 			state.SizeAndDo(a)
 			w.WriteMsg(a)
 			return dns.RcodeSuccess, nil
 		}
-		log.Infof("No data for %s, delegating to next plugin", state.Name())
+		log.Debugf("No data for %s, delegating to next plugin", state.Name())
 		return plugin.NextOrFailure(n.Name(), n.Next, ctx, w, r)
-	//case NameError:
-	//	a.Rcode = dns.RcodeNameError
+	case NameError:
+		log.Warningf("name error for %s", state.Name())
+		a.Rcode = dns.RcodeNameError
 	case ServerFailure:
 		log.Warningf("server failure for %s", state.Name())
 		a.Rcode = dns.RcodeServerFailure
@@ -115,20 +116,21 @@ func (n *NfdPlugin) Lookup(ctx context.Context, state request.Request) ([]dns.RR
 	}
 	// needs to be [...].{root}.algo at minimum unless NS or SOA query
 	if len(qnameSplit) < 2 || qnameSplit[len(qnameSplit)-1] != "algo" {
-		// We should only have gotten here if via internal CNAME -> lookup process - so do resolve via external forwarder (google)
+		// We should only have gotten here if via internal CNAME -> lookup process - so do resolve via
+		// external forwarder (google)
 		return n.LookupViaForwarder(ctx, state)
 	}
 
 	// Now fetch the root (and possibly segment) NFDs to determine which NFD the data
 	// is being fetched from root (direclty) - root w/ nested data, or segment w or w/o further sub-data
 	var (
-		answerRrs     = []dns.RR{}
-		authorityRrs  = []dns.RR{}
-		additionalRrs = []dns.RR{}
+		answerRrs     []dns.RR
+		authorityRrs  []dns.RR
+		additionalRrs []dns.RR
 	)
 	mergedJsonRrs, err := n.NfdCache.GetNfdRRs(ctx, log, qname)
 	if errors.Is(err, nfd.ErrNfdNotFound) || (err == nil && mergedJsonRrs == nil) {
-		return nil, nil, nil, NoData
+		return nil, nil, nil, NameError
 	}
 	if err != nil {
 		log.Errorf("error getting NFDs: %v", err)
@@ -251,32 +253,4 @@ func (n *NfdPlugin) LookupViaForwarder(ctx context.Context, state request.Reques
 		return nil, nil, nil, ServerFailure
 	}
 	return writer.Msg.Answer, nil, writer.Msg.Extra, Success
-	//return nil, nil, nil, Success
-	//
-	//a.Answer, a.Ns, a.Extra, result = n.Lookup(ctx, state)
-	//switch result {
-	//case Success:
-	//	state.SizeAndDo(a)
-	//	w.WriteMsg(a)
-	//	return dns.RcodeSuccess, nil
-	//case NoData, NameError:
-	//	if n.Next == nil {
-	//		log.Infof("No data for %s, no next plugin", state.Name())
-	//		state.SizeAndDo(a)
-	//		w.WriteMsg(a)
-	//		return dns.RcodeSuccess, nil
-	//	}
-	//	log.Infof("No data for %s, delegating to next plugin", state.Name())
-	//	return plugin.NextOrFailure(n.Name(), n.Next, ctx, w, r)
-	////case NameError:
-	////	a.Rcode = dns.RcodeNameError
-	//case ServerFailure:
-	//	log.Warningf("server failure for %s", state.Name())
-	//	a.Rcode = dns.RcodeServerFailure
-	//	return dns.RcodeServerFailure, nil
-	//case NotImplemented:
-	//	return dns.RcodeNotImplemented, nil
-	//}
-	//// Unknown result...
-	//return dns.RcodeServerFailure, nil
 }
