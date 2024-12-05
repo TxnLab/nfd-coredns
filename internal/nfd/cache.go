@@ -13,23 +13,23 @@ import (
 	clog "github.com/coredns/coredns/plugin/pkg/log"
 )
 
-type NfdCache struct {
+type Cache struct {
 	*nfdFetcher
-	nfdCache *expirable.LRU[string, NFDProperties]
+	nfdCache *expirable.LRU[string, Properties]
 	rrCache  *expirable.LRU[string, []JsonRr]
 }
 
-func NewNfdCache(client *algod.Client, registryID uint64) *NfdCache {
-	return &NfdCache{
-		nfdFetcher: newNfdFetcher(client, registryID),
-		nfdCache:   expirable.NewLRU[string, NFDProperties](50000, nil, 5*time.Minute),
-		rrCache:    expirable.NewLRU[string, []JsonRr](50000, nil, 5*time.Minute),
+func NewNfdCache(client *algod.Client, registryID uint64, algoXyzIp string, cacheTtl time.Duration) *Cache {
+	return &Cache{
+		nfdFetcher: newNfdFetcher(client, registryID, algoXyzIp),
+		nfdCache:   expirable.NewLRU[string, Properties](50000, nil, cacheTtl),
+		rrCache:    expirable.NewLRU[string, []JsonRr](50000, nil, cacheTtl),
 	}
 }
 
-func (n *NfdCache) FetchNFDs(ctx context.Context, names []string) (map[string]NFDProperties, error) {
+func (n *Cache) FetchNFDs(ctx context.Context, names []string) (map[string]Properties, error) {
 	// Check cache - fetching only what's needed - combining results at end
-	retVals := map[string]NFDProperties{}
+	retVals := map[string]Properties{}
 	namesToFetch := make([]string, 0, len(names))
 	for _, name := range names {
 		props, found := n.nfdCache.Get(name)
@@ -42,7 +42,7 @@ func (n *NfdCache) FetchNFDs(ctx context.Context, names []string) (map[string]NF
 	if len(namesToFetch) == 0 {
 		return retVals, nil
 	}
-	fetchedNfds, err := n.nfdFetcher.FetchNfdDnsVal(ctx, namesToFetch)
+	fetchedNfds, err := n.nfdFetcher.FetchNfdDnsVals(ctx, namesToFetch)
 	if err != nil {
 		return nil, err
 	}
@@ -54,15 +54,15 @@ func (n *NfdCache) FetchNFDs(ctx context.Context, names []string) (map[string]NF
 	return retVals, nil
 }
 
-func (n *NfdCache) GetNfdRRs(ctx context.Context, log clog.P, qname string) ([]JsonRr, error) {
+func (n *Cache) GetNfdRRs(ctx context.Context, log clog.P, qname string) ([]JsonRr, error) {
 	var (
 		qnameSplit      = dns.SplitDomainName(qname)
 		nfdRootName     string
 		segmentBasename string
 		segmentFQName   string
 		nfdsToFetch     []string
-		nfdRoot         NFDProperties
-		nfdSegment      NFDProperties
+		nfdRootData     Properties
+		nfdSegmentData  Properties
 	)
 	rrs, found := n.rrCache.Get(qname)
 	if found {
@@ -97,34 +97,34 @@ func (n *NfdCache) GetNfdRRs(ctx context.Context, log clog.P, qname string) ([]J
 			return nil, err
 		}
 	}
-	nfdRoot = nfdData[nfdRootName]
-	if nfdRoot.Internal["name"] != nfdRootName {
-		log.Errorf("nfdRoot.Internal.name: %s != %s", nfdRoot.Internal["name"], nfdRootName)
-		return nil, fmt.Errorf("nfdRoot.Internal.name: %s != %s", nfdRoot.Internal["name"], nfdRootName)
+	nfdRootData = nfdData[nfdRootName]
+	if nfdRootData.Internal["name"] != nfdRootName {
+		log.Errorf("nfdRootData.Internal.name: %s != %s", nfdRootData.Internal["name"], nfdRootName)
+		return nil, fmt.Errorf("nfdRootData.Internal.name: %s != %s", nfdRootData.Internal["name"], nfdRootName)
 	}
 	var (
 		baseJsonRrs    []JsonRr
 		segmentJsonRrs []JsonRr
 	)
-	baseJsonRrs, err = NfdToJsonRRs(ctx, nfdRoot)
+	baseJsonRrs, err = NfdToJsonRRs(ctx, nfdRootData)
 	if err != nil {
-		log.Errorf("error converting NFD:%s w/ dns prop:%s to jsonRRs: %v", nfdRootName, nfdRoot.UserDefined["dns"], err)
+		log.Errorf("error converting NFD:%s w/ dns prop:%s to jsonRRs: %v", nfdRootName, nfdRootData.UserDefined["dns"], err)
 		return nil, err
 	}
 	if segmentBasename != "" {
 		var segmentFound bool
-		nfdSegment, segmentFound = nfdData[segmentFQName]
+		nfdSegmentData, segmentFound = nfdData[segmentFQName]
 		if segmentFound {
 			// segment found - it MUST be same owner !!! so... can't set this record..
 			// ie: mail.patrick.algo.xyz - but mail isn't owned by patrick
 			// so we should act like it doesn't exist.
-			if nfdSegment.Internal["owner"] != nfdRoot.Internal["owner"] {
-				log.Warningf("nfdSegment.Internal.owner: %s != %s", nfdSegment.Internal["owner"], nfdRoot.Internal["owner"])
+			if nfdSegmentData.Internal["owner"] != nfdRootData.Internal["owner"] {
+				log.Warningf("nfdSegmentData.Internal.owner: %s != %s", nfdSegmentData.Internal["owner"], nfdRootData.Internal["owner"])
 				return nil, ErrNfdSplitOwnership
 			}
-			segmentJsonRrs, err = NfdToJsonRRs(ctx, nfdSegment)
+			segmentJsonRrs, err = NfdToJsonRRs(ctx, nfdSegmentData)
 			if err != nil {
-				log.Errorf("error converting NFD:%s w/ dns prop:%s to jsonRRs: %v", segmentFQName, nfdSegment.UserDefined["dns"], err)
+				log.Errorf("error converting NFD:%s w/ dns prop:%s to jsonRRs: %v", segmentFQName, nfdSegmentData.UserDefined["dns"], err)
 				return nil, err
 			}
 		}
@@ -135,6 +135,7 @@ func (n *NfdCache) GetNfdRRs(ctx context.Context, log clog.P, qname string) ([]J
 	ConvertOriginRefs(ctx, segmentFQName, segmentJsonRrs)
 
 	mergedJsonRrs := MergeJsonRrrs(ctx, baseJsonRrs, segmentJsonRrs)
+	log.Debugf("mergedJsonRrs: %+v", mergedJsonRrs)
 	n.rrCache.Add(qname, mergedJsonRrs)
 
 	return mergedJsonRrs, nil

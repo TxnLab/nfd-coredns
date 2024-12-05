@@ -23,7 +23,7 @@ type JsonRr struct {
 	Type   string   `json:"type"`
 }
 
-func NfdToJsonRRs(_ context.Context, nfdProps NFDProperties) ([]JsonRr, error) {
+func NfdToJsonRRs(_ context.Context, nfdProps Properties) ([]JsonRr, error) {
 	dnsVal, found := nfdProps.UserDefined["dns"]
 	if !found {
 		return nil, fmt.Errorf("no dns property found")

@@ -23,6 +23,8 @@ import (
 	"github.com/algorand/go-algorand-sdk/v2/crypto"
 	"github.com/algorand/go-algorand-sdk/v2/types"
 	"github.com/mailgun/holster/v4/syncutil"
+
+	"github.com/coredns/coredns/plugin/pkg/log"
 )
 
 var (
@@ -33,26 +35,30 @@ var (
 	ErrNfdSplitOwnership = errors.New("nfd segment has different owner than root")
 )
 
-type NFDProperties struct {
+type nfdFetcher struct {
+	Client     *algod.Client
+	RegistryId uint64
+	AlgoXyzIp  string
+}
+
+func newNfdFetcher(client *algod.Client, registryID uint64, algoXyzIp string) *nfdFetcher {
+	return &nfdFetcher{Client: client, RegistryId: registryID, AlgoXyzIp: algoXyzIp}
+}
+
+type Properties struct {
 	Internal    map[string]string `json:"internal"`
 	UserDefined map[string]string `json:"userDefined"`
 	Verified    map[string]string `json:"verified"`
 }
 
-type nfdFetcher struct {
-	Client     *algod.Client
-	RegistryID uint64
-}
-
-func newNfdFetcher(client *algod.Client, registryID uint64) *nfdFetcher {
-	return &nfdFetcher{Client: client, RegistryID: registryID}
-}
-
-func (n *nfdFetcher) FetchNfdDnsVal(ctx context.Context, names []string) (map[string]NFDProperties, error) {
+// FetchNfdDnsVals retrieves DNS and URL properties for a list of NFD names in parallel, returning a map of results.
+// It queries the NFD App ID by name and fetches specific properties for each NFD, utilizing goroutines for efficiency.
+// If all names result in `ErrNfdNotFound`, the function returns this error; otherwise, it returns a map of found values.
+func (n *nfdFetcher) FetchNfdDnsVals(ctx context.Context, names []string) (map[string]Properties, error) {
 	var (
 		wg     syncutil.WaitGroup
 		lock   sync.Mutex
-		retMap = map[string]NFDProperties{}
+		retMap = map[string]Properties{}
 	)
 
 	for _, name := range names {
@@ -62,7 +68,7 @@ func (n *nfdFetcher) FetchNfdDnsVal(ctx context.Context, names []string) (map[st
 			if err != nil {
 				return err
 			}
-			props, err := n.FetchNFD(ctx, nfdId, false, []string{"u.dns"})
+			props, err := n.FetchNFD(ctx, nfdId, false, []string{"u.dns", "u.url"})
 			if err != nil {
 				return err
 			}
@@ -91,18 +97,18 @@ func (n *nfdFetcher) FetchNfdDnsVal(ctx context.Context, names []string) (map[st
 	return retMap, nil
 }
 
-func (n *nfdFetcher) FetchNFD(ctx context.Context, nfdId uint64, internalOnly bool, propertyList []string) (NFDProperties, error) {
+func (n *nfdFetcher) FetchNFD(ctx context.Context, nfdId uint64, internalOnly bool, propertyList []string) (Properties, error) {
 	// Load the global state of this application
 	appData, err := n.Client.GetApplicationByID(nfdId).Do(ctx)
 	if err != nil {
-		return NFDProperties{}, err
+		return Properties{}, err
 	}
 	var boxData map[string][]byte
 	if !internalOnly {
 		// Now load all the box data (V2) in parallel
 		boxData, err = n.GetApplicationBoxes(ctx, nfdId, propertyList)
 		if err != nil {
-			return NFDProperties{}, err
+			return Properties{}, err
 		}
 	}
 	// Fetch everything into key/value map...
@@ -111,14 +117,23 @@ func (n *nfdFetcher) FetchNFD(ctx context.Context, nfdId uint64, internalOnly bo
 	// verified won't be that long - but once v2 it'll all be in single values
 	properties.UserDefined = MergeNFDProperties(properties.UserDefined)
 
-	if !IsContractVersionAtLeast(properties.Internal["ver"], 3, 0) {
-		return NFDProperties{}, ErrNFdIncompatible
+	if properties.UserDefined["dns"] != "" {
+		// Must be v3 for dns support
+		if !IsContractVersionAtLeast(properties.Internal["ver"], 3, 0) {
+			log.Debugf("NFD %d is v%s but w/ dns val, flagging incompatible", nfdId, properties.Internal["ver"])
+			return Properties{}, ErrNFdIncompatible
+		}
+	} else {
+		// do old school url handling by composing fake DNS record so we just return A record of the name itself.
+		// ie: patrick.algo.xyz -> turns into A address of algo.xyz service - hardcoded for now
+		properties.UserDefined["dns"] = fmt.Sprintf(`[ {"name":"@","type": "a","rrData": ["%s"]} ]`, n.AlgoXyzIp)
+		return properties, nil
 	}
 	if IsNFdExpired(properties) {
-		return NFDProperties{}, ErrNfdExpired
+		return Properties{}, ErrNfdExpired
 	}
 	if !IsNfdOwned(nfdId, properties) {
-		return NFDProperties{}, ErrNfdNotOwned
+		return Properties{}, ErrNfdNotOwned
 	}
 
 	return properties, nil
@@ -126,7 +141,7 @@ func (n *nfdFetcher) FetchNFD(ctx context.Context, nfdId uint64, internalOnly bo
 
 func (n *nfdFetcher) FindNFDAppIDByName(ctx context.Context, nfdName string) (uint64, error) {
 	// First try to resolve via V2
-	boxValue, err := n.Client.GetApplicationBoxByName(n.RegistryID, GetRegistryBoxNameForNFD(nfdName)).Do(ctx)
+	boxValue, err := n.Client.GetApplicationBoxByName(n.RegistryId, GetRegistryBoxNameForNFD(nfdName)).Do(ctx)
 	if err == nil {
 		// The box data is stored as
 		// {ASA ID}{APP ID} - packed 64-bit ints
@@ -140,9 +155,9 @@ func (n *nfdFetcher) FindNFDAppIDByName(ctx context.Context, nfdName string) (ui
 	// ============
 	// fall back to V1 approach
 	// Read the local state for our registry SC from this specific account
-	nameLSIG, _ := GetNFDSigNameLSIG(nfdName, n.RegistryID)
+	nameLSIG, _ := GetNFDSigNameLSIG(nfdName, n.RegistryId)
 	address, _ := nameLSIG.Address()
-	account, err := n.Client.AccountApplicationInformation(address.String(), n.RegistryID).Do(ctx)
+	account, err := n.Client.AccountApplicationInformation(address.String(), n.RegistryId).Do(ctx)
 	if err != nil {
 		if strings.Contains(err.Error(), "404") {
 			return 0, ErrNfdNotFound
@@ -314,7 +329,7 @@ func (a byKeyName) Less(i, j int) bool {
 	return bytes.Compare(keyI, keyJ) == -1
 }
 
-func FetchAllStateAsNFDProperties(appState []models.TealKeyValue, boxData map[string][]byte) NFDProperties {
+func FetchAllStateAsNFDProperties(appState []models.TealKeyValue, boxData map[string][]byte) Properties {
 	isStringPrintable := func(str string) bool {
 		for _, strRune := range str {
 			if !strconv.IsPrint(strRune) {
@@ -324,7 +339,7 @@ func FetchAllStateAsNFDProperties(appState []models.TealKeyValue, boxData map[st
 		return true
 	}
 	var (
-		state = NFDProperties{
+		state = Properties{
 			Internal:    map[string]string{},
 			UserDefined: map[string]string{},
 			Verified:    map[string]string{},
@@ -448,7 +463,7 @@ func IsContractVersionAtLeast(version string, major, minor int) bool {
 	return false
 }
 
-func IsNFdExpired(props NFDProperties) bool {
+func IsNFdExpired(props Properties) bool {
 	intVal, _ := strconv.ParseUint(props.Internal["expirationTime"], 10, 64)
 	if intVal == 0 {
 		return false
@@ -456,10 +471,9 @@ func IsNFdExpired(props NFDProperties) bool {
 		var timeVal = time.Unix(int64(intVal), 0)
 		return time.Now().UTC().After(timeVal)
 	}
-	return false
 }
 
-func IsNfdOwned(nfdAppId uint64, props NFDProperties) bool {
+func IsNfdOwned(nfdAppId uint64, props Properties) bool {
 	sellAmt, _ := strconv.ParseUint(props.Internal["sellamt"], 10, 64)
 	if sellAmt != 0 {
 		return false // for sale
