@@ -9,12 +9,13 @@ import (
 	"github.com/algorand/go-algorand-sdk/v2/client/v2/algod"
 	"github.com/coredns/caddy"
 
-	"github.com/TxnLab/nfd-coredns/internal/nfd"
 	"github.com/coredns/coredns/core/dnsserver"
 	"github.com/coredns/coredns/plugin"
 	"github.com/coredns/coredns/plugin/forward"
 	"github.com/coredns/coredns/plugin/pkg/proxy"
 	"github.com/coredns/coredns/plugin/pkg/transport"
+
+	"github.com/TxnLab/nfd-coredns/internal/nfd"
 )
 
 const (
