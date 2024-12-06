@@ -1,0 +1,84 @@
+name: build-and-push-to-artifact-registry
+
+on:
+  push:
+
+env:
+  PROJECT_NUM: ${{ secrets.PROJECT_NUM }}
+  ARTIFACT_REGISTRY_LOCATION: ${{ secrets.ARTIFACT_REGISTRY_LOCATION }}
+  IMAGE_REPO: ${{ secrets.ARTIFACT_REGISTRY_LOCATION }}-docker.pkg.dev/${{ secrets.GKE_PROJECT }}/${{ secrets.ARTIFACT_REPOSITORY }}
+  DOCKER_BUILDKIT: 1
+
+jobs:
+  build-test:
+    name: Run go tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '>=1.23.0'
+
+      - name: Test
+        run: go test -v ./...
+  build:
+    name: Build nfd-coredns
+    needs: build-test
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Configure Workload Identity Federation and generate an access token.
+      - id: 'auth'
+        name: 'Authenticate to Google Cloud'
+        uses: 'google-github-actions/auth@v2'
+        with:
+          token_format: 'access_token'
+          workload_identity_provider: 'projects/${{ env.PROJECT_NUM }}/locations/global/workloadIdentityPools/REDACTED_WIF_POOL/providers/REDACTED_WIF_PROVIDER'
+          service_account: 'REDACTED_SERVICE_ACCOUNT'
+
+      # Setup gcloud CLI
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Docker configuration
+        run: |-
+          echo ${{steps.auth.outputs.access_token}} | docker login -u oauth2accesstoken --password-stdin https://$ARTIFACT_REGISTRY_LOCATION-docker.pkg.dev
+
+      - name: Build nfd-coredns
+        run: docker buildx build --platform linux/amd64 -t $IMAGE_REPO/nfddns:$GITHUB_SHA .
+      - name: Publish all
+        run: |-
+          docker push $IMAGE_REPO/nfddns:$GITHUB_SHA
+          echo "::notice ::Built and Pushed $GITHUB_SHA"
+
+  push-to-env:
+    name: Push hash to env repo
+    needs: build
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+
+    steps:
+      - name: Push hash to environment repo to start deploy process [if main]
+        if: ${{ github.ref_name == 'main' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: 'REDACTED_DEPLOY_OWNER',
+              repo: 'REDACTED_DEPLOY_REPO',
+              workflow_id: 'REDACTED_WORKFLOW',
+              ref: 'REDACTED_DEPLOY_REF',
+              inputs: {'hash':'${{ github.sha }}'}
+            });
