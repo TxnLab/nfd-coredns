@@ -48,10 +48,6 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Docker configuration
-        run: |-
-          echo ${{steps.auth.outputs.access_token}} | docker login -u oauth2accesstoken --password-stdin https://$ARTIFACT_REGISTRY_LOCATION-docker.pkg.dev
-
       - name: Build nfd-coredns
         run: docker buildx build --platform linux/amd64 -t $IMAGE_REPO/nfddns:$GITHUB_SHA .
       - name: Publish all
