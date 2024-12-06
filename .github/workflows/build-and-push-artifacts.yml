@@ -43,7 +43,6 @@ jobs:
         with:
           token_format: 'access_token'
           workload_identity_provider: 'projects/${{ env.PROJECT_NUM }}/locations/global/workloadIdentityPools/REDACTED_WIF_POOL/providers/REDACTED_WIF_PROVIDER'
-          service_account: 'REDACTED_SERVICE_ACCOUNT'
 
       # Setup gcloud CLI
       - name: Set up Cloud SDK

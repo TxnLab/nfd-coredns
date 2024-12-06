@@ -101,6 +101,28 @@ func (n *NfdPlugin) Lookup(ctx context.Context, state request.Request) ([]dns.RR
 	qname := state.Name()
 	qtype := state.QType()
 
+	//  Kick out unsupported qtype's immediately
+	switch qtype {
+	case dns.TypeSOA:
+		fallthrough
+	case dns.TypeNS:
+		fallthrough
+	case dns.TypeCAA:
+		fallthrough
+	case dns.TypeCNAME:
+		fallthrough
+	case dns.TypeTXT:
+		fallthrough
+	case dns.TypeMX:
+		fallthrough
+	case dns.TypeA:
+		fallthrough
+	case dns.TypeAAAA:
+	// we're ok... let passthrough
+	default:
+		return nil, nil, nil, NotImplemented
+	}
+
 	// parse out the domain into parts (won't have . terminator)
 	qnameSplit = dns.SplitDomainName(qname)
 	log.Infof("Lookup: qname: %s qtype: %s", qname, dns.TypeToString[qtype])
@@ -120,7 +142,6 @@ func (n *NfdPlugin) Lookup(ctx context.Context, state request.Request) ([]dns.RR
 		// external forwarder (google)
 		return n.LookupViaForwarder(ctx, state)
 	}
-
 	// Now fetch the root (and possibly segment) NFDs to determine which NFD the data
 	// is being fetched from root (direclty) - root w/ nested data, or segment w or w/o further sub-data
 	var (
