@@ -41,7 +41,7 @@ jobs:
         name: 'Authenticate to Google Cloud'
         uses: 'google-github-actions/auth@v2'
         with:
-          token_format: 'access_token'
+          project_id: REDACTED_PROJECT
           workload_identity_provider: 'projects/${{ env.PROJECT_NUM }}/locations/global/workloadIdentityPools/REDACTED_WIF_POOL/providers/REDACTED_WIF_PROVIDER'
 
       # Setup gcloud CLI
