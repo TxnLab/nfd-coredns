@@ -41,7 +41,7 @@ jobs:
         name: 'Authenticate to Google Cloud'
         uses: 'google-github-actions/auth@v2'
         with:
-          token_format: 'access_token'
+          project_id: nfd-nodes
           workload_identity_provider: 'projects/${{ env.PROJECT_NUM }}/locations/global/workloadIdentityPools/build-pool/providers/build-provider'
 
       # Setup gcloud CLI
