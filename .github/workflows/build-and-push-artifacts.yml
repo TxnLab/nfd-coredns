@@ -41,12 +41,17 @@ jobs:
         name: 'Authenticate to Google Cloud'
         uses: 'google-github-actions/auth@v2'
         with:
-          project_id: REDACTED_PROJECT
+          token_format: 'access_token'
           workload_identity_provider: 'projects/${{ env.PROJECT_NUM }}/locations/global/workloadIdentityPools/REDACTED_WIF_POOL/providers/REDACTED_WIF_PROVIDER'
+          service_account: 'REDACTED_SERVICE_ACCOUNT'
 
       # Setup gcloud CLI
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
+
+      - name: Docker configuration
+        run: |-
+          echo ${{steps.auth.outputs.access_token}} | docker login -u oauth2accesstoken --password-stdin https://$ARTIFACT_REGISTRY_LOCATION-docker.pkg.dev
 
       - name: Build nfd-coredns
         run: docker buildx build --platform linux/amd64 -t $IMAGE_REPO/nfddns:$GITHUB_SHA .
