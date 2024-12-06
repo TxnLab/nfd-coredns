@@ -68,7 +68,7 @@ func (n *nfdFetcher) FetchNfdDnsVals(ctx context.Context, names []string) (map[s
 			if err != nil {
 				return err
 			}
-			props, err := n.FetchNFD(ctx, nfdId, false, []string{"u.dns", "u.url"})
+			props, err := n.FetchNFD(ctx, nfdId, false, []string{"u.dns"})
 			if err != nil {
 				return err
 			}
@@ -125,7 +125,7 @@ func (n *nfdFetcher) FetchNFD(ctx context.Context, nfdId uint64, internalOnly bo
 		}
 	} else {
 		// do old school url handling by composing fake DNS record so we just return A record of the name itself.
-		// ie: patrick.algo.xyz -> turns into A address of algo.xyz service - hardcoded for now
+		// ie: patrick.algo.xyz -> turns into A address of algo.xyz service (can be changed via corefile config block)
 		properties.UserDefined["dns"] = fmt.Sprintf(`[ {"name":"@","type": "a","rrData": ["%s"]} ]`, n.AlgoXyzIp)
 		return properties, nil
 	}
