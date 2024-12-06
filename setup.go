@@ -9,6 +9,8 @@ import (
 	"github.com/algorand/go-algorand-sdk/v2/client/v2/algod"
 	"github.com/coredns/caddy"
 
+	"github.com/coredns/coredns/plugin/file"
+
 	"github.com/coredns/coredns/core/dnsserver"
 	"github.com/coredns/coredns/plugin"
 	"github.com/coredns/coredns/plugin/forward"
@@ -29,6 +31,20 @@ func init() {
 	plugin.Register(pluginName, setupNfd)
 }
 
+// In case we need to add any non-nfd sourced zone definitions
+const rootMinZone = `
+$TTL    5M
+$ORIGIN algo.
+
+@       IN      SOA     ns.algo. algo. (
+                             1282630057 ; Serial
+                             4H         ; Refresh
+                             1H         ; Retry
+                             7D         ; Expire
+                             4H )       ; Negative Cache TTL
+
+`
+
 func setupNfd(c *caddy.Controller) error {
 	pluginCfg, err := nfdParse(c)
 	if err != nil {
@@ -40,12 +56,25 @@ func setupNfd(c *caddy.Controller) error {
 	}
 
 	dnsserver.GetConfig(c).AddPlugin(func(next plugin.Handler) plugin.Handler {
+		// initialize a dummy .algo zone we can load static data into as a fallback if there are any
+		// records we might need to add (even temporarily) for all instances
+		zone, err := file.Parse(strings.NewReader(rootMinZone), "algo.", "stdin", 0)
+		if err != nil {
+			log.Fatalf("failed to parse zone: %v", err)
+		}
+		filePlugin := file.File{
+			Next:  next,
+			Zones: file.Zones{Z: map[string]*file.Zone{"algo.": zone}, Names: []string{"algo."}},
+		}
+
+		// Initialize a Forwarder plugin we can use to handle out of zone cname->xxx lookups (using cloudflare)
+		// Passed to nfd plugin to use selectively
 		forwarder := forward.New()
 		forwarder.Next = next
 		forwarder.SetProxy(proxy.NewProxy("forward", "1.1.1.1:53", transport.DNS))
 
-		return &NfdPlugin{
-			Next:      next,
+		nfdPlugin := &NfdPlugin{
+			Next:      filePlugin,
 			Forwarder: forwarder,
 			NfdCache: nfd.NewNfdCache(
 				algoClient,
@@ -55,6 +84,8 @@ func setupNfd(c *caddy.Controller) error {
 			),
 			nfdNameServers: pluginCfg.nfdNameServers,
 		}
+
+		return nfdPlugin
 	})
 
 	return nil

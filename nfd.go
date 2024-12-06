@@ -130,7 +130,7 @@ func (n *NfdPlugin) Lookup(ctx context.Context, state request.Request) ([]dns.RR
 	)
 	mergedJsonRrs, err := n.NfdCache.GetNfdRRs(ctx, log, qname)
 	if errors.Is(err, nfd.ErrNfdNotFound) || (err == nil && mergedJsonRrs == nil) {
-		return nil, nil, nil, NameError
+		return nil, nil, nil, NoData
 	}
 	if err != nil {
 		log.Errorf("error getting NFDs: %v", err)
@@ -198,12 +198,17 @@ func (n *NfdPlugin) Query(jsonRecords []nfd.JsonRr, queryName string, qType uint
 		return n.handleSOA(queryName)
 	case dns.TypeNS:
 		return n.handleNS(queryName)
-	case dns.TypeA,
-		dns.TypeAAAA,
-		dns.TypeCNAME,
-		dns.TypeTXT,
-		dns.TypeMX,
-		dns.TypeCAA:
+	case dns.TypeCAA:
+		fallthrough
+	case dns.TypeCNAME:
+		fallthrough
+	case dns.TypeTXT:
+		fallthrough
+	case dns.TypeMX:
+		fallthrough
+	case dns.TypeA:
+		fallthrough
+	case dns.TypeAAAA:
 		return nfd.DnsRRsFromJsonRRs(jsonRecords, queryName, qType)
 	default:
 		return nil, errNotImplemented
