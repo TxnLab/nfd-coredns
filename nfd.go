@@ -1,4 +1,9 @@
-package nfd_coredns
+/*
+ * Copyright (c) 2024. TxnLab Inc.
+ * All Rights reserved.
+ */
+
+package main
 
 import (
 	"context"

@@ -1,0 +1,64 @@
+algo {
+  reload
+  prometheus
+  health :8080
+  nfd {
+    # betanet
+    node https://betanet-api.4160.nodely.dev
+    registryid 842656530
+
+    nameservers ns1.nfdomains.dev ns2.nfdomains.dev
+    cachemins 5
+  }
+  cache 60
+  debug
+  log
+  errors
+}
+
+algo.xyz {
+  reload
+  prometheus
+  rewrite stop {
+    # rewrite requests to remove xyz suffix - add back on answer
+    name regex (.*)\.algo\.xyz {1}.algo
+    answer name (.*)\.algo {1}.algo.xyz
+  }
+  nfd {
+    #token aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+
+    # mainnet
+    node https://mainnet-api.4160.nodely.dev
+    registryid 760937186
+
+    nameservers ns1.nfdomains.dev ns2.nfdomains.dev
+    cachemins 5
+  }
+  cache 60
+  debug
+  log
+  errors
+}
+
+dotalgo.io {
+  reload
+  prometheus
+  rewrite stop {
+    name regex (.*)\.dotalgo\.io {1}.algo
+    answer name (.*)\.algo {1}.dotalgo.io
+  }
+  nfd {
+    #token aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+
+    # mainnet
+    node https://mainnet-api.4160.nodely.dev
+    registryid 760937186
+
+    nameservers ns1.nfdomains.dev ns2.nfdomains.dev
+    cachemins 5
+  }
+  cache 60
+  debug
+  log
+  errors
+}
