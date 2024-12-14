@@ -56,6 +56,7 @@ dotalgo.io {
 
     nameservers ns1.nfdomains.dev ns2.nfdomains.dev
     cachemins 5
+    algoxyzip 34.8.101.7
   }
   cache 60
   debug

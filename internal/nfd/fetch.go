@@ -73,7 +73,7 @@ func (n *nfdFetcher) FetchNfdDnsVals(ctx context.Context, names []string) (map[s
 			if err != nil {
 				return err
 			}
-			props, err := n.FetchNFD(ctx, nfdId, false, []string{"u.dns"})
+			props, err := n.FetchNFD(ctx, nfdId, false, []string{"u.dns", "v.blueskydid"})
 			if err != nil {
 				return err
 			}
@@ -122,23 +122,22 @@ func (n *nfdFetcher) FetchNFD(ctx context.Context, nfdId uint64, internalOnly bo
 	// verified won't be that long - but once v2 it'll all be in single values
 	properties.UserDefined = MergeNFDProperties(properties.UserDefined)
 
-	if properties.UserDefined["dns"] != "" {
-		// Must be v3 for dns support
+	// If v3 and expired, or if for sale - just treat as old-school redirect to home page and that's it.
+	shouldIgnoreProps := IsNFdExpired(properties) || !IsNfdOwned(nfdId, properties)
+	hasExplicitProps := properties.UserDefined["dns"] != "" || properties.Verified["blueskydid"] != ""
+	if !shouldIgnoreProps && hasExplicitProps {
+		// Must be v3 for dns / blueskydid support
 		if !IsContractVersionAtLeast(properties.Internal["ver"], 3, 0) {
-			log.Debugf("NFD %d is v%s but w/ dns val, flagging incompatible", nfdId, properties.Internal["ver"])
+			log.Debugf("NFD %d is v%s but w/ dns or blueskydid val, flagging incompatible", nfdId, properties.Internal["ver"])
 			return Properties{}, ErrNFdIncompatible
 		}
-	} else {
+	}
+	if shouldIgnoreProps || properties.UserDefined["dns"] == "" {
+		// expired, not owned, or.. doesn't have explicit dns etc records
 		// do old school url handling by composing fake DNS record so we just return A record of the name itself.
 		// ie: patrick.algo.xyz -> turns into A address of algo.xyz service (can be changed via corefile config block)
 		properties.UserDefined["dns"] = fmt.Sprintf(`[ {"name":"@","type": "a","rrData": ["%s"]} ]`, n.AlgoXyzIp)
 		return properties, nil
-	}
-	if IsNFdExpired(properties) {
-		return Properties{}, ErrNfdExpired
-	}
-	if !IsNfdOwned(nfdId, properties) {
-		return Properties{}, ErrNfdNotOwned
 	}
 
 	return properties, nil
