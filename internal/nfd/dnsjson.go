@@ -30,14 +30,21 @@ type JsonRr struct {
 
 func NfdToJsonRRs(_ context.Context, nfdProps Properties) ([]JsonRr, error) {
 	dnsVal, found := nfdProps.UserDefined["dns"]
-	if !found {
-		return nil, fmt.Errorf("no dns property found")
-	}
 	var dnsResult []JsonRr
-	// unmarshal into dnsResult
-	err := json.Unmarshal([]byte(dnsVal), &dnsResult)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal dns property: %v", err)
+	if found {
+		// unmarshal into dnsResult
+		err := json.Unmarshal([]byte(dnsVal), &dnsResult)
+		if err != nil {
+			return nil, fmt.Errorf("failed to unmarshal dns property: %v", err)
+		}
+	}
+	// Mix in bluesky record if appropriate
+	if bskydid, found := nfdProps.Verified["blueskydid"]; found {
+		dnsResult = append(dnsResult, JsonRr{
+			Name:   "_atproto.@",
+			Type:   "txt",
+			RrData: []string{"did=" + bskydid},
+		})
 	}
 	return dnsResult, nil
 }
@@ -93,6 +100,9 @@ func ConvertOriginRefs(_ context.Context, fqdn string, rrs []JsonRr) {
 	for i, rr := range rrs {
 		if rr.Name == "@" {
 			rrs[i].Name = dns.Fqdn(fqdn)
+		} else if strings.HasSuffix(rr.Name, ".@") {
+			// convert foo.@ into foo.{domain}
+			rrs[i].Name = rr.Name[:len(rr.Name)-1] + dns.Fqdn(fqdn)
 		}
 		if strings.HasSuffix(rr.Name, ".xyz.") {
 			// trim off the xyz.
