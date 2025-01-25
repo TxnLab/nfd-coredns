@@ -8,7 +8,7 @@ require (
 	github.com/coredns/coredns v1.12.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/mailgun/holster/v4 v4.20.3
-	github.com/miekg/dns v1.1.62
+	github.com/miekg/dns v1.1.63
 )
 
 require (
