@@ -1,10 +1,8 @@
 FROM golang:1.23-alpine AS builder
-WORKDIR /build
+WORKDIR /
 
 # Install git and certificates
 RUN apk --no-cache add tzdata zip ca-certificates git make
-COPY . /build
-WORKDIR /build
 COPY go.* ./
 RUN go mod download
 COPY . ./
@@ -14,7 +12,7 @@ FROM scratch
 WORKDIR /app
 
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-COPY --from=builder /build/out/nfd-coredns /app/coredns
+COPY --from=builder /out/nfd-coredns /app/coredns
 
 EXPOSE 53 53/udp
 ENTRYPOINT ["/app/coredns"]
