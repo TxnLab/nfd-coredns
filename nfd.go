@@ -82,13 +82,13 @@ func (n *NfdPlugin) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.M
 			w.WriteMsg(a)
 			return dns.RcodeSuccess, nil
 		}
-		log.Debugf("No data for %s, delegating to next plugin", state.Name())
+		log.Debugf("No data for %s, delegating to next plugin:%s", state.Name(), n.Next.Name())
 		return plugin.NextOrFailure(n.Name(), n.Next, ctx, w, r)
 	case NameError:
-		log.Warningf("name error for %s", state.Name())
+		log.Warningf("name error for %s, returning RcodeNameError (NXDomain)", state.Name())
 		a.Rcode = dns.RcodeNameError
 	case ServerFailure:
-		log.Warningf("server failure for %s", state.Name())
+		log.Warningf("server failure for %s (ServFail)", state.Name())
 		a.Rcode = dns.RcodeServerFailure
 		return dns.RcodeServerFailure, nil
 	case NotImplemented:
@@ -148,7 +148,7 @@ func (n *NfdPlugin) Lookup(ctx context.Context, state request.Request) ([]dns.RR
 		return n.LookupViaForwarder(ctx, state)
 	}
 	// Now fetch the root (and possibly segment) NFDs to determine which NFD the data
-	// is being fetched from root (direclty) - root w/ nested data, or segment w or w/o further sub-data
+	// is being fetched from root (directly) - root w/ nested data, or segment w or w/o further sub-data
 	var (
 		answerRrs     []dns.RR
 		authorityRrs  []dns.RR
@@ -217,7 +217,7 @@ func (n *NfdPlugin) Lookup(ctx context.Context, state request.Request) ([]dns.RR
 	return answerRrs, authorityRrs, additionalRrs, Success
 }
 
-// Query  the query type against our combined records - name and qtype have to match
+// Query the query type against our combined records - name and qtype have to match
 func (n *NfdPlugin) Query(jsonRecords []nfd.JsonRr, queryName string, qType uint16) ([]dns.RR, error) {
 	switch qType {
 	case dns.TypeSOA:
