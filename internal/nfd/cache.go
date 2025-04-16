@@ -58,14 +58,23 @@ func (n *Cache) FetchNFDs(ctx context.Context, log clog.P, names []string) (map[
 	// have some names to fetch - fetch them, and merge with cache
 	fetchedNfds, err := n.nfdFetcher.FetchNfdDnsVals(ctx, namesToFetch)
 	log.Debugf("fetchedNfds: names to fetch:%v, fetched:%d, %v, err:%v", namesToFetch, len(fetchedNfds), slices.Collect(maps.Keys(fetchedNfds)), err)
-	if errors.Is(err, ErrNfdNotFound) {
-		// Add the names to fetch to our cache - but as not-found so we don't keep trying to fetch them for a bit
-		for _, name := range namesToFetch {
+	// Add the names that were NOT found to our cache - but as not-found so we don't keep trying to fetch them for a bit
+	for _, name := range namesToFetch {
+		var found bool
+		if fetchedNfds == nil {
+			found = false
+		} else {
+			_, found = fetchedNfds[name]
+		}
+		if !found {
 			log.Debugf("[not found] added to nfd cache: %s, 0 props", name)
 			n.nfdCache.Add(name, Properties{})
 		}
+	}
+
+	if errors.Is(err, ErrNfdNotFound) {
 		if len(retVals) > 0 {
-			// return the cached values we already have
+			// return the cached values we already set into retVals
 			return retVals, nil
 		}
 		return nil, err
@@ -73,7 +82,7 @@ func (n *Cache) FetchNFDs(ctx context.Context, log clog.P, names []string) (map[
 	if err != nil {
 		return nil, err
 	}
-	// merge the retVals with fetchedNfds map
+	// merge the prior cached retVals with fetchedNfds map
 	for name, props := range fetchedNfds {
 		n.nfdCache.Add(name, props)
 		log.Debugf("added to nfd cache: %s, %d props", name, len(props.Internal)+len(props.UserDefined)+len(props.Verified))
