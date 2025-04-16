@@ -42,7 +42,7 @@ func (n *Cache) FetchNFDs(ctx context.Context, log clog.P, names []string) (map[
 			namesToFetch = append(namesToFetch, name)
 			continue
 		}
-		log.Debugf("found in nfd cache: %s, %s props", name, len(props.Internal)+len(props.UserDefined)+len(props.Verified))
+		log.Debugf("found in nfd cache: %s, %d props", name, len(props.Internal)+len(props.UserDefined)+len(props.Verified))
 		retVals[name] = props
 	}
 	if len(namesToFetch) == 0 {
