@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"time"
 
 	"github.com/algorand/go-algorand-sdk/v2/client/v2/algod"
@@ -34,7 +35,7 @@ func NewNfdCache(client *algod.Client, registryID uint64, algoXyzIp string, cach
 }
 
 func (n *Cache) FetchNFDs(ctx context.Context, log clog.P, names []string) (map[string]Properties, error) {
-	// Check cache - fetching only what's needed - combining results at end
+	// Check cache - fetching only what's needed - combining results at the end
 	retVals := map[string]Properties{}
 	namesToFetch := make([]string, 0, len(names))
 	for _, name := range names {
@@ -44,13 +45,31 @@ func (n *Cache) FetchNFDs(ctx context.Context, log clog.P, names []string) (map[
 			continue
 		}
 		log.Debugf("found in nfd cache: %s, %d props", name, len(props.Internal)+len(props.UserDefined)+len(props.Verified))
+		if len(props.Internal) == 0 && len(props.UserDefined) == 0 && len(props.Verified) == 0 {
+			// dummy 'not found' placeholder - don't try to fetch it again but don't add it to retVals either
+			continue
+		}
 		retVals[name] = props
 	}
 	if len(namesToFetch) == 0 {
+		// everything we need is in the cache - return it
 		return retVals, nil
 	}
+	// have some names to fetch - fetch them, and merge with cache
 	fetchedNfds, err := n.nfdFetcher.FetchNfdDnsVals(ctx, namesToFetch)
-	log.Debugf("fetchedNfds: names to fetch:[%v], fetched:%d, [%v], err:%v", namesToFetch, len(fetchedNfds), maps.Keys(fetchedNfds), err)
+	log.Debugf("fetchedNfds: names to fetch:%v, fetched:%d, %v, err:%v", namesToFetch, len(fetchedNfds), slices.Collect(maps.Keys(fetchedNfds)), err)
+	if errors.Is(err, ErrNfdNotFound) {
+		// Add the names to fetch to our cache - but as not-found so we don't keep trying to fetch them for a bit
+		for _, name := range namesToFetch {
+			log.Debugf("[not found] added to nfd cache: %s, 0 props", name)
+			n.nfdCache.Add(name, Properties{})
+		}
+		if len(retVals) > 0 {
+			// return the cached values we already have
+			return retVals, nil
+		}
+		return nil, err
+	}
 	if err != nil {
 		return nil, err
 	}
