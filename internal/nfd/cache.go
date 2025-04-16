@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/algorand/go-algorand-sdk/v2/client/v2/algod"
@@ -49,7 +50,7 @@ func (n *Cache) FetchNFDs(ctx context.Context, log clog.P, names []string) (map[
 		return retVals, nil
 	}
 	fetchedNfds, err := n.nfdFetcher.FetchNfdDnsVals(ctx, namesToFetch)
-	log.Debugf("fetchedNfds: %d names to fetch, fetched:%d, err:%v", len(namesToFetch), len(fetchedNfds), err)
+	log.Debugf("fetchedNfds: names to fetch:[%v], fetched:%d, [%v], err:%v", namesToFetch, len(fetchedNfds), maps.Keys(fetchedNfds), err)
 	if err != nil {
 		return nil, err
 	}
