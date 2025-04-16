@@ -57,7 +57,7 @@ type Properties struct {
 }
 
 // FetchNfdDnsVals retrieves DNS and URL properties for a list of NFD names in parallel, returning a map of results.
-// It queries the NFD App ID by name and fetches specific properties for each NFD, utilizing goroutines for efficiency.
+// It queries the NFD App ID by name and fetches specific properties for each NFD, using goroutines for efficiency.
 // If all names result in `ErrNfdNotFound`, the function returns this error; otherwise, it returns a map of found values.
 func (n *nfdFetcher) FetchNfdDnsVals(ctx context.Context, names []string) (map[string]Properties, error) {
 	var (
@@ -144,7 +144,7 @@ func (n *nfdFetcher) FetchNFD(ctx context.Context, nfdId uint64, internalOnly bo
 }
 
 func (n *nfdFetcher) FindNFDAppIDByName(ctx context.Context, nfdName string) (uint64, error) {
-	// First try to resolve via V2
+	// First, try to resolve via V2
 	boxValue, err := n.Client.GetApplicationBoxByName(n.RegistryId, GetRegistryBoxNameForNFD(nfdName)).Do(ctx)
 	if err == nil {
 		// The box data is stored as

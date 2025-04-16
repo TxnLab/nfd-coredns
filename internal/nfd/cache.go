@@ -32,7 +32,7 @@ func NewNfdCache(client *algod.Client, registryID uint64, algoXyzIp string, cach
 	}
 }
 
-func (n *Cache) FetchNFDs(ctx context.Context, names []string) (map[string]Properties, error) {
+func (n *Cache) FetchNFDs(ctx context.Context, log clog.P, names []string) (map[string]Properties, error) {
 	// Check cache - fetching only what's needed - combining results at end
 	retVals := map[string]Properties{}
 	namesToFetch := make([]string, 0, len(names))
@@ -42,18 +42,21 @@ func (n *Cache) FetchNFDs(ctx context.Context, names []string) (map[string]Prope
 			namesToFetch = append(namesToFetch, name)
 			continue
 		}
+		log.Debugf("found in nfd cache: %s, %s props", name, len(props.Internal)+len(props.UserDefined)+len(props.Verified))
 		retVals[name] = props
 	}
 	if len(namesToFetch) == 0 {
 		return retVals, nil
 	}
 	fetchedNfds, err := n.nfdFetcher.FetchNfdDnsVals(ctx, namesToFetch)
+	log.Debugf("fetchedNfds: %d names to fetch, fetched:%d, err:%v", len(namesToFetch), len(fetchedNfds), err)
 	if err != nil {
 		return nil, err
 	}
 	// merge the retVals with fetchedNfds map
 	for name, props := range fetchedNfds {
 		n.nfdCache.Add(name, props)
+		log.Debugf("added to nfd cache: %s, %d props", name, len(props.Internal)+len(props.UserDefined)+len(props.Verified))
 		retVals[name] = props
 	}
 	return retVals, nil
@@ -84,16 +87,16 @@ func (n *Cache) GetNfdRRs(ctx context.Context, log clog.P, qname string) ([]Json
 		segmentFQName = segmentBasename + "." + nfdRootName
 		nfdsToFetch = append(nfdsToFetch, segmentFQName)
 		// ie: mail.patrick.algo -  segmentBasename would be 'mail'
-		// it could be a segment, or a record but either way the segment HAS to be looked up to determine
-		// if it exists, and if so, does it have same owner.
+		// it could be a segment, or a record, but either way the segment HAS to be looked up to determine
+		// if it exists, and if so, does it have the same owner.
 	}
 	if len(qnameSplit) > 4 {
-		// ie: don't allow more than single RR name off of segment,
+		// ie: don't allow more than a single RR name off of segment,
 		// key.segment.patrick.algo
 		return nil, fmt.Errorf("too many segments")
 
 	}
-	nfdData, err := n.FetchNFDs(ctx, nfdsToFetch)
+	nfdData, err := n.FetchNFDs(ctx, log, nfdsToFetch)
 	if err != nil {
 		if errors.Is(err, ErrNfdNotFound) {
 			return nil, err
@@ -120,7 +123,7 @@ func (n *Cache) GetNfdRRs(ctx context.Context, log clog.P, qname string) ([]Json
 		var segmentFound bool
 		nfdSegmentData, segmentFound = nfdData[segmentFQName]
 		if segmentFound {
-			// segment found - it MUST be same owner !!! so... can't set this record..
+			// segment found - it MUST be the same owner !!! so... can't set this record..
 			// ie: mail.patrick.algo.xyz - but mail isn't owned by patrick
 			// so we should act like it doesn't exist.
 			if nfdSegmentData.Internal["owner"] != nfdRootData.Internal["owner"] {
