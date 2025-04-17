@@ -149,6 +149,7 @@ func (n *NfdPlugin) Lookup(ctx context.Context, state request.Request) ([]dns.RR
 	}
 	// Now fetch the root (and possibly segment) NFDs to determine which NFD the data
 	// is being fetched from root (directly) - root w/ nested data, or segment w or w/o further sub-data
+	// ie, patrick.algo [root], or foo.patrick.algo [contained within patrick.algo as RR value], or foo.patrick.algo [segment off patrick.algo]
 	var (
 		answerRrs     []dns.RR
 		authorityRrs  []dns.RR

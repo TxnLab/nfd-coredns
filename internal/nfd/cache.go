@@ -38,15 +38,19 @@ func (n *Cache) FetchNFDs(ctx context.Context, log clog.P, names []string) (map[
 	// Check cache - fetching only what's needed - combining results at the end
 	retVals := map[string]Properties{}
 	namesToFetch := make([]string, 0, len(names))
+	log.Debugf("fetchNFDs: names: %v", names)
 	for _, name := range names {
+		if !isValidNFDName(name) {
+			continue
+		}
 		props, found := n.nfdCache.Get(name)
 		if !found {
 			namesToFetch = append(namesToFetch, name)
 			continue
 		}
 		log.Debugf("found in nfd cache: %s, %d props", name, len(props.Internal)+len(props.UserDefined)+len(props.Verified))
-		if len(props.Internal) == 0 && len(props.UserDefined) == 0 && len(props.Verified) == 0 {
-			// dummy 'not found' placeholder - don't try to fetch it again but don't add it to retVals either
+		if len(props.Internal) == 0 {
+			// fake 'not found' placeholder - don't try to fetch it again but don't add it to retVals either
 			continue
 		}
 		retVals[name] = props
@@ -97,7 +101,7 @@ func (n *Cache) GetNfdRRs(ctx context.Context, log clog.P, qname string) ([]Json
 		nfdRootName     string
 		segmentBasename string
 		segmentFQName   string
-		nfdsToFetch     []string
+		nfdsToFetch     = make([]string, 0, len(qnameSplit)-1)
 		nfdRootData     Properties
 		nfdSegmentData  Properties
 	)
@@ -120,11 +124,12 @@ func (n *Cache) GetNfdRRs(ctx context.Context, log clog.P, qname string) ([]Json
 		// if it exists, and if so, does it have the same owner.
 	}
 	if len(qnameSplit) > 4 {
-		// ie: don't allow more than a single RR name off of segment,
+		// ie: don't allow more than a single RR name off of segment ?
 		// key.segment.patrick.algo
 		return nil, fmt.Errorf("too many segments")
 
 	}
+	// fetch (valid) NFDs (ie: _atproto.patrick.algo won't try to fetch _atproto.patrick.algo as a segment)
 	nfdData, err := n.FetchNFDs(ctx, log, nfdsToFetch)
 	if err != nil {
 		if errors.Is(err, ErrNfdNotFound) {
