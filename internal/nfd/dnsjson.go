@@ -19,6 +19,7 @@ type JsonRRs struct {
 	Rrs []JsonRr `json:"rr"`
 }
 
+// JsonRr represents a DNS resource record in JSON format with name, type, TTL, and record-specific data.
 type JsonRr struct {
 	// Name will be like @ (for origin - ie: patrick.algo.xyz., or a name like box which would
 	// represent box.patrick.algo.xyz
@@ -104,9 +105,9 @@ func ConvertOriginRefs(_ context.Context, fqdn string, rrs []JsonRr) {
 			// convert foo.@ into foo.{domain}
 			rrs[i].Name = rr.Name[:len(rr.Name)-1] + dns.Fqdn(fqdn)
 		}
-		if strings.HasSuffix(rr.Name, ".xyz.") {
+		if strings.HasSuffix(rr.Name, ".algo.xyz.") {
 			// trim off the xyz.
-			rrs[i].Name = strings.TrimSuffix(rr.Name, "xyz.")
+			rrs[i].Name = strings.TrimSuffix(rr.Name, "xyz.") // xxx.algo.xyz. -> xxx.algo.
 		}
 	}
 }
