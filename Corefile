@@ -53,8 +53,7 @@ dotalgo.io {
     registryid 842656530
     nameservers ns1.nfdomains.dev ns2.nfdomains.dev
     cachemins 5
-
-    nfdappcname app.betanet.nf.domains.
+    algoxyzip 34.8.101.7
   }
   cache 60
   debug

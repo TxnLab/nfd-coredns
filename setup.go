@@ -6,6 +6,7 @@
 package main
 
 import (
+	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -27,7 +28,7 @@ import (
 const (
 	// defaults
 	defRegId        = 760937186
-	defNfdAppCName  = "app.betanet.nf.domains."
+	defAlgoXyzIp    = "34.8.101.7"
 	defCacheMinutes = 5
 )
 
@@ -50,7 +51,7 @@ $ORIGIN algo.
 `
 
 func setupNfd(c *caddy.Controller) error {
-	pluginCfg, err := nfdParseConfig(c)
+	pluginCfg, err := nfdParse(c)
 	if err != nil {
 		return plugin.Error(pluginName, err)
 	}
@@ -104,14 +105,14 @@ type nfdPluginConfig struct {
 	cacheMins      int
 }
 
-func nfdParseConfig(c *caddy.Controller) (*nfdPluginConfig, error) {
+func nfdParse(c *caddy.Controller) (*nfdPluginConfig, error) {
 	var (
-		node        string
-		token       string
-		registryID  uint64 = defRegId
-		nfdAppCName string = defNfdAppCName
-		cacheMins   int    = defCacheMinutes
-		err         error
+		node       string
+		token      string
+		registryID uint64 = defRegId
+		algoXyzIp  string = defAlgoXyzIp
+		cacheMins  int    = defCacheMinutes
+		err        error
 	)
 	nfdNameServers := make([]string, 0)
 
@@ -136,15 +137,19 @@ func nfdParseConfig(c *caddy.Controller) (*nfdPluginConfig, error) {
 				return nil, c.Errf("invalid token; multiple values")
 			}
 			token = args[0]
-		case "nfdappcname":
+		case "algoxyzip":
 			args := c.RemainingArgs()
 			if len(args) == 0 {
-				return nil, c.Errf("invalid nfdappcname; no value")
+				return nil, c.Errf("invalid algoxyzip; no value")
 			}
 			if len(args) > 1 {
-				return nil, c.Errf("invalid nfdappcname; multiple values")
+				return nil, c.Errf("invalid algoxyzip; multiple values")
 			}
-			nfdAppCName = args[0]
+			algoXyzIp = args[0]
+			ip := net.ParseIP(algoXyzIp)
+			if ip == nil || ip.To4() == nil {
+				return nil, c.Errf("invalid algoxyzip; not a valid IPv4 address")
+			}
 		case "registryid":
 			args := c.RemainingArgs()
 			if len(args) == 0 {
@@ -192,12 +197,12 @@ func nfdParseConfig(c *caddy.Controller) (*nfdPluginConfig, error) {
 		}
 	}
 	log.Infof(
-		"node: %s, token: %s, registryID: %d, nameservers: %v, nfdAppCName: %s, cacheMins: %d",
+		"node: %s, token: %s, registryID: %d, nameservers: %v, algoXyzIp: %s, cacheMins: %d",
 		node,
 		token,
 		registryID,
 		nfdNameServers,
-		nfdAppCName,
+		algoXyzIp,
 		cacheMins,
 	)
 	return &nfdPluginConfig{
@@ -205,7 +210,7 @@ func nfdParseConfig(c *caddy.Controller) (*nfdPluginConfig, error) {
 		token:          token,
 		registryID:     registryID,
 		nfdNameServers: nfdNameServers,
-		algoXyzIp:      nfdAppCName,
+		algoXyzIp:      algoXyzIp,
 		cacheMins:      cacheMins,
 	}, nil
 }
