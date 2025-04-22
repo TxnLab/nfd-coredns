@@ -41,13 +41,13 @@ var (
 )
 
 type nfdFetcher struct {
-	Client      *algod.Client
-	RegistryId  uint64
-	NfdAppCName string
+	Client     *algod.Client
+	RegistryId uint64
+	AlgoXyzIp  string
 }
 
-func newNfdFetcher(client *algod.Client, registryID uint64, nfdAppCName string) *nfdFetcher {
-	return &nfdFetcher{Client: client, RegistryId: registryID, NfdAppCName: nfdAppCName}
+func newNfdFetcher(client *algod.Client, registryID uint64, algoXyzIp string) *nfdFetcher {
+	return &nfdFetcher{Client: client, RegistryId: registryID, AlgoXyzIp: algoXyzIp}
 }
 
 type Properties struct {
@@ -136,7 +136,7 @@ func (n *nfdFetcher) FetchNFD(ctx context.Context, nfdId uint64, internalOnly bo
 		// expired, not owned, or.. doesn't have explicit dns etc records
 		// do old school url handling by composing fake DNS record so we just return A record of the name itself.
 		// ie: patrick.algo.xyz -> turns into A address of algo.xyz service (can be changed via corefile config block)
-		properties.UserDefined["dns"] = fmt.Sprintf(`[ {"name":"@","type": "cname","rrData": ["%s"]} ]`, n.NfdAppCName)
+		properties.UserDefined["dns"] = fmt.Sprintf(`[ {"name":"@","type": "a","rrData": ["%s"]} ]`, n.AlgoXyzIp)
 		return properties, nil
 	}
 

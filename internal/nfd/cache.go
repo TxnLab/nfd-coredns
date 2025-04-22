@@ -26,9 +26,9 @@ type Cache struct {
 	rrCache  *expirable.LRU[string, []JsonRr]
 }
 
-func NewNfdCache(client *algod.Client, registryID uint64, nfdAppCName string, cacheTtl time.Duration) *Cache {
+func NewNfdCache(client *algod.Client, registryID uint64, algoXyzIp string, cacheTtl time.Duration) *Cache {
 	return &Cache{
-		nfdFetcher: newNfdFetcher(client, registryID, nfdAppCName),
+		nfdFetcher: newNfdFetcher(client, registryID, algoXyzIp),
 		nfdCache:   expirable.NewLRU[string, Properties](50000, nil, cacheTtl),
 		rrCache:    expirable.NewLRU[string, []JsonRr](50000, nil, cacheTtl),
 	}
