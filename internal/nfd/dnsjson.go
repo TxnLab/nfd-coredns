@@ -61,7 +61,7 @@ func DnsRRsFromJsonRRs(jsonRecords []JsonRr, queryName string, rrType uint16) ([
 		return nil, fmt.Errorf("failed to find type name for %d", rrType)
 	}
 	for _, jsonRecord := range jsonRecords {
-		if !strings.EqualFold(jsonRecord.Name, queryName) || !strings.EqualFold(jsonRecord.Type, typeName) {
+		if !strings.EqualFold(jsonRecord.Type, typeName) || !strings.EqualFold(jsonRecord.Name, queryName) {
 			continue
 		}
 		// compose as dns string for parsing
@@ -85,7 +85,6 @@ func DnsRRsFromJsonRRs(jsonRecords []JsonRr, queryName string, rrType uint16) ([
 		for _, rrdata := range jsonRecord.RrData {
 			dnsString := jsonRecord.Name + " " + strconv.Itoa(ttl) + " " + dns.ClassToString[dns.ClassINET] + " " + jsonRecord.Type + " "
 			dnsString += rrdata
-			//nfd_coredns.log.Infof("dnsString: %s", dnsString)
 			rr, err := dns.NewRR(dnsString)
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse dns string: %s", dnsString)
@@ -101,13 +100,23 @@ func ConvertOriginRefs(_ context.Context, fqdn string, rrs []JsonRr) {
 	for i, rr := range rrs {
 		if rr.Name == "@" {
 			rrs[i].Name = dns.Fqdn(fqdn)
-		} else if strings.HasSuffix(rr.Name, ".@") {
-			// convert foo.@ into foo.{domain}
-			rrs[i].Name = rr.Name[:len(rr.Name)-1] + dns.Fqdn(fqdn)
-		}
-		if strings.HasSuffix(rr.Name, ".algo.xyz.") {
-			// trim off the xyz.
-			rrs[i].Name = strings.TrimSuffix(rr.Name, "xyz.") // xxx.algo.xyz. -> xxx.algo.
+		} else {
+			if strings.HasSuffix(rr.Name, ".@") {
+				// convert foo.@ into foo.{domain}
+				rrs[i].Name = rr.Name[:len(rr.Name)-1] + dns.Fqdn(fqdn)
+			}
+			if strings.HasSuffix(rr.Name, ".algo.xyz") {
+				// trim off the .xyz to turn into just .algo
+				rrs[i].Name = strings.TrimSuffix(rr.Name, "xyz") // xxx.algo.xyz. -> xxx.algo.
+			}
+			if strings.HasSuffix(rr.Name, ".dotalgo.io") {
+				// replace .dotalgo.io with just .algo
+				rrs[i].Name = strings.TrimSuffix(rr.Name, ".dotalgo.io") + ".algo."
+			}
+			if !strings.HasSuffix(rr.Name, ".") {
+				// always add '.' to end since that's what the query name will have
+				rrs[i].Name += "."
+			}
 		}
 	}
 }

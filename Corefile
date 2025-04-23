@@ -1,21 +1,23 @@
-algo {
-  reload
-  prometheus
-  health :8080
-  nfd {
-    # betanet
-    node https://betanet-api.4160.nodely.dev
-    registryid 842656530
-    nameservers ns1.nfdomains.dev ns2.nfdomains.dev
-    cachemins 5
-  }
-  cache 60
-  debug
-  log
-  errors {
-    stacktrace
-  }
-}
+# algo {
+#   reload
+#   prometheus
+#   health :8080
+#   nfd {
+#     # betanet
+#     node https://betanet-api.4160.nodely.dev
+#     registryid 842656530
+#     nameservers ns1.nfdomains.dev ns2.nfdomains.dev
+#     cachemins 5
+#   }
+#   cache {
+#     keepttl
+#   }
+#   debug
+#   log
+#   errors {
+#     stacktrace
+#   }
+# }
 
 algo.xyz {
   reload
@@ -31,8 +33,11 @@ algo.xyz {
     registryid 842656530
     nameservers ns1.nfdomains.dev ns2.nfdomains.dev
     cachemins 5
+    algoxyzip 34.8.101.7
   }
-  cache 60
+  cache {
+    keepttl
+  }
   debug
   log
   errors {
@@ -55,7 +60,9 @@ dotalgo.io {
     cachemins 5
     algoxyzip 34.8.101.7
   }
-  cache 60
+  cache {
+    keepttl
+  }
   debug
   log
   errors {
