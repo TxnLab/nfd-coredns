@@ -6,7 +6,11 @@
 package main
 
 import (
+	"embed"
+	"io/fs"
+	"maps"
 	"net"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -36,19 +40,12 @@ func init() {
 	plugin.Register(pluginName, setupNfd)
 }
 
-// In case we need to add any non-nfd sourced zone definitions
-const rootMinZone = `
-$TTL    5M
-$ORIGIN algo.
-
-@       IN      SOA     ns.algo. algo. (
-                             1282630057 ; Serial
-                             4H         ; Refresh
-                             1H         ; Retry
-                             7D         ; Expire
-                             4H )       ; Negative Cache TTL
-
-`
+// Now embed in the binary the root zone definitions for algo.xyz and dotalgo.io (testing)
+// since the NS records will point to our service yet there are certain 'root' entries
+// we'll need to serve (like A record for algo.xyz for eg)
+//
+//go:embed internal/zones
+var embeddedZones embed.FS
 
 func setupNfd(c *caddy.Controller) error {
 	pluginCfg, err := nfdParse(c)
@@ -59,17 +56,32 @@ func setupNfd(c *caddy.Controller) error {
 	if err != nil {
 		return plugin.Error(pluginName, err)
 	}
-
 	dnsserver.GetConfig(c).AddPlugin(func(next plugin.Handler) plugin.Handler {
-		// initialize a dummy .algo zone we can load static data into as a fallback if there are any
-		// records we might need to add (even temporarily) for all instances
-		zone, err := file.Parse(strings.NewReader(rootMinZone), "algo.", "stdin", 0)
-		if err != nil {
-			log.Fatalf("failed to parse zone: %v", err)
-		}
+		var (
+			zoneConfig = map[string]*file.Zone{}
+		)
+		fs.WalkDir(embeddedZones, "internal/zones", func(path string, d fs.DirEntry, err error) error {
+			if d.IsDir() {
+				return nil
+			}
+			origin := d.Name() + "."
+			log.Info(path)
+			zoneFile, err := embeddedZones.Open(path)
+			if err != nil {
+				log.Fatalf("failed to open embedded zone %s: %v", path, err)
+			}
+			algoZone, err := file.Parse(zoneFile, origin, d.Name(), 0)
+			if err != nil {
+				log.Fatalf("failed to parse zone: %v", err)
+			}
+			zoneConfig[origin] = algoZone
+			return nil
+		})
 		filePlugin := file.File{
-			Next:  next,
-			Zones: file.Zones{Z: map[string]*file.Zone{"algo.": zone}, Names: []string{"algo."}},
+			Next: next,
+			Zones: file.Zones{
+				Z:     zoneConfig,
+				Names: slices.Collect(maps.Keys(zoneConfig))},
 		}
 
 		// Initialize a Forwarder plugin we can use to handle out of zone cname->xxx lookups (using cloudflare)

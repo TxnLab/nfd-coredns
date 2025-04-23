@@ -113,7 +113,7 @@ func ConvertOriginRefs(_ context.Context, fqdn string, rrs []JsonRr) {
 				// replace .dotalgo.io with just .algo
 				rrs[i].Name = strings.TrimSuffix(rr.Name, ".dotalgo.io") + ".algo."
 			}
-			if !strings.HasSuffix(rr.Name, ".") {
+			if !strings.HasSuffix(rrs[i].Name, ".") {
 				// always add '.' to end since that's what the query name will have
 				rrs[i].Name += "."
 			}

@@ -133,6 +133,7 @@ func (n *Cache) GetNfdRRs(ctx context.Context, log clog.P, qname string) ([]Json
 	nfdData, err := n.FetchNFDs(ctx, log, nfdsToFetch)
 	if err != nil {
 		if errors.Is(err, ErrNfdNotFound) {
+			log.Infof("nfd %v not found: %v", nfdsToFetch, err)
 			return nil, err
 		} else {
 			log.Warningf("nfds %v error in fetch: %v", nfdsToFetch, err)
