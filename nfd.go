@@ -8,8 +8,6 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
-	"time"
 
 	"github.com/miekg/dns"
 
@@ -51,8 +49,6 @@ const (
 
 var (
 	log = clog.NewWithPlugin(pluginName)
-	//defaultTtl = time.Duration(5 * time.Minute).Seconds()
-	defaultTtl = 5 * 60
 
 	errNotImplemented = errors.New("not implemented")
 )
@@ -93,6 +89,9 @@ func (n *NfdPlugin) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.M
 		return dns.RcodeServerFailure, nil
 	case NotImplemented:
 		return dns.RcodeNotImplemented, nil
+	default:
+		log.Warningf("unknown result for %s, returning RcodeServerFailure (ServFail)", state.Name())
+		a.Rcode = dns.RcodeServerFailure
 	}
 	// Unknown result...
 	return dns.RcodeServerFailure, nil
@@ -131,21 +130,20 @@ func (n *NfdPlugin) Lookup(ctx context.Context, state request.Request) ([]dns.RR
 	// parse out the domain into parts (won't have . terminator)
 	qnameSplit = dns.SplitDomainName(qname)
 	log.Infof("Lookup: qname: %s qtype: %s", qname, dns.TypeToString[qtype])
-	if qtype == dns.TypeSOA || qtype == dns.TypeNS {
-		rrs, err := n.Query([]nfd.JsonRr{}, qname, qtype)
-		if err != nil {
-			return nil, nil, nil, ServerFailure
-		}
-		if len(rrs) == 0 {
-			return nil, nil, nil, NoData
-		}
-		return rrs, nil, nil, Success
-	}
-	// needs to be [...].{root}.algo at minimum unless NS or SOA query
-	if len(qnameSplit) < 2 || qnameSplit[len(qnameSplit)-1] != "algo" {
+	if len(qnameSplit) < 2 {
 		// We should only have gotten here if via internal CNAME -> lookup process - so do resolve via
 		// external forwarder (google)
 		return n.LookupViaForwarder(ctx, state)
+	} else if qnameSplit[len(qnameSplit)-1] != "algo" {
+		// we'll get here for something like patrick.algo (that was originally patrick.algo.xyz but our rewrite rule turns it into patrick.algo)
+		// we'll also get here for the ROOT zone fetch of the real name - like algo.xyz and dotalgo.io
+		// so fallback to file plugin for our hardcoded root zone info for our root zones, otherwise forward to google
+		if (qnameSplit[len(qnameSplit)-1] == "algo" || qnameSplit[len(qnameSplit)-1] == "xyz") || (qnameSplit[len(qnameSplit)-2] == "dotalgo" && qnameSplit[len(qnameSplit)-1] == "io") {
+			return nil, nil, nil, NoData
+		} else {
+			// some other root - just do lookup via forwarder
+			return n.LookupViaForwarder(ctx, state)
+		}
 	}
 	// Now fetch the root (and possibly segment) NFDs to determine which NFD the data
 	// is being fetched from root (directly) - root w/ nested data, or segment w or w/o further sub-data
@@ -220,11 +218,12 @@ func (n *NfdPlugin) Lookup(ctx context.Context, state request.Request) ([]dns.RR
 
 // Query the query type against our combined records - name and qtype have to match
 func (n *NfdPlugin) Query(jsonRecords []nfd.JsonRr, queryName string, qType uint16) ([]dns.RR, error) {
+	// For root zone query, just fallthrough (will go to 'internal code' file zone)
 	switch qType {
 	case dns.TypeSOA:
-		return n.handleSOA(queryName)
+		fallthrough
 	case dns.TypeNS:
-		return n.handleNS(queryName)
+		fallthrough
 	case dns.TypeCAA:
 		fallthrough
 	case dns.TypeCNAME:
@@ -242,39 +241,40 @@ func (n *NfdPlugin) Query(jsonRecords []nfd.JsonRr, queryName string, qType uint
 	}
 }
 
-func (n *NfdPlugin) handleSOA(qName string) ([]dns.RR, error) {
-	now := time.Now()
-	ser := ((now.Hour()*3600 + now.Minute()) * 100) / 86400
-	dateStr := fmt.Sprintf("%04d%02d%02d%02d", now.Year(), now.Month(), now.Day(), ser)
-
-	var results []dns.RR
-	if len(n.nfdNameServers) > 0 {
-		// Create a synthetic SOA record (borrowed from coreens eg)
-		result, err := dns.NewRR(fmt.Sprintf("%s 10800 IN SOA %s hostmaster.%s %s 3600 600 1209600 300", qName, n.nfdNameServers[0], n.nfdNameServers[0], dateStr))
-		if err != nil {
-			return results, err
-		}
-		results = append(results, result)
-	}
-	return results, nil
-}
-
-func (n *NfdPlugin) handleNS(qname string) ([]dns.RR, error) {
-	results := make([]dns.RR, 0)
-	for _, nameserver := range n.nfdNameServers {
-		result, err := dns.NewRR(fmt.Sprintf("%s 3600 IN NS %s", qname, nameserver))
-		if err != nil {
-			return results, err
-		}
-		results = append(results, result)
-	}
-
-	return results, nil
-}
+//func (n *NfdPlugin) handleSOA(qName string) ([]dns.RR, error) {
+//	now := time.Now()
+//	ser := ((now.Hour()*3600 + now.Minute()) * 100) / 86400
+//	dateStr := fmt.Sprintf("%04d%02d%02d%02d", now.Year(), now.Month(), now.Day(), ser)
+//
+//	var results []dns.RR
+//	if len(n.nfdNameServers) > 0 {
+//		// Create a synthetic SOA record (borrowed from coreens eg)
+//		result, err := dns.NewRR(fmt.Sprintf("%s 10800 IN SOA %s hostmaster.%s %s 3600 600 1209600 300", qName, n.nfdNameServers[0], n.nfdNameServers[0], dateStr))
+//		if err != nil {
+//			return results, err
+//		}
+//		results = append(results, result)
+//	}
+//	return results, nil
+//}
+//
+//func (n *NfdPlugin) handleNS(qname string) ([]dns.RR, error) {
+//	results := make([]dns.RR, 0)
+//	for _, nameserver := range n.nfdNameServers {
+//		result, err := dns.NewRR(fmt.Sprintf("%s 3600 IN NS %s", qname, nameserver))
+//		if err != nil {
+//			return results, err
+//		}
+//		results = append(results, result)
+//	}
+//
+//	return results, nil
+//}
 
 func (n *NfdPlugin) LookupViaForwarder(ctx context.Context, state request.Request) ([]dns.RR, []dns.RR, []dns.RR, Result) {
 	writer := nonwriter.New(state.W)
 
+	log.Infof("LookupViaForwarder: qname: %s qtype: %s", state.Name(), dns.TypeToString[state.QType()])
 	code, err := n.Forwarder.ServeDNS(ctx, writer, state.Req)
 	if err != nil {
 		log.Errorf("error resolving via forwarder: %v", err)
