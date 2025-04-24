@@ -1,71 +1,50 @@
-# algo {
-#   reload
-#   prometheus
-#   health :8080
-#   nfd {
-#     # betanet
-#     node https://betanet-api.4160.nodely.dev
-#     registryid 842656530
-#     nameservers ns1.nfdomains.dev ns2.nfdomains.dev
-#     cachemins 5
-#   }
-#   cache {
-#     keepttl
-#   }
-#   debug
-#   log
-#   errors {
-#     stacktrace
-#   }
-# }
-
 algo.xyz {
-  reload
-  prometheus
-  rewrite stop {
-    # rewrite requests to remove xyz suffix - add back on answer
-    name regex (.*)\.algo\.xyz {1}.algo
-    answer name (.*)\.algo {1}.algo.xyz
+    health :8080
+    reload
+    prometheus :9153
+    rewrite stop {
+      # rewrite requests to remove xyz suffix - add back on answer
+      name regex (.*)\.algo\.xyz {1}.algo
+      answer name (.*)\.algo {1}.algo.xyz
+    }
+    nfd {
+      # mainnet
+      node https://mainnet-api.4160.nodely.dev
+      registryid 760937186
+      nameservers ns1.nfdomains.dev ns2.nfdomains.dev
+      cachemins 5
+      algoxyzip 34.111.170.195
+    }
+    cache {
+      keepttl
+    }
+    debug
+    log
+    errors {
+      stacktrace
+    }
   }
-  nfd {
-    # mainnet
-    node https://betanet-api.4160.nodely.dev
-    registryid 842656530
-    nameservers ns1.nfdomains.dev ns2.nfdomains.dev
-    cachemins 5
-    algoxyzip 34.8.101.7
-  }
-  cache {
-    keepttl
-  }
-  debug
-  log
-  errors {
-    stacktrace
-  }
-}
 
-dotalgo.io {
-  reload
-  prometheus
-  rewrite stop {
-    name regex (.*)\.dotalgo\.io {1}.algo
-    answer name (.*)\.algo {1}.dotalgo.io
+  dotalgo.io {
+    reload
+    prometheus :9153
+    rewrite stop {
+      name regex (.*)\.dotalgo\.io {1}.algo
+      answer name (.*)\.algo {1}.dotalgo.io
+    }
+    nfd {
+      node https://mainnet-api.4160.nodely.dev
+      registryid 760937186
+      nameservers ns1.nfdomains.dev ns2.nfdomains.dev
+      cachemins 5
+      algoxyzip 34.111.170.195
+    }
+    cache {
+      keepttl
+    }
+    debug
+    log
+    errors {
+      stacktrace
+    }
   }
-  nfd {
-    # mainnet
-    node https://betanet-api.4160.nodely.dev
-    registryid 842656530
-    nameservers ns1.nfdomains.dev ns2.nfdomains.dev
-    cachemins 5
-    algoxyzip 34.8.101.7
-  }
-  cache {
-    keepttl
-  }
-  debug
-  log
-  errors {
-    stacktrace
-  }
-}

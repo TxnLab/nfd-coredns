@@ -162,7 +162,8 @@ func (n *Cache) GetNfdRRs(ctx context.Context, log clog.P, qname string) ([]Json
 			// ie: mail.patrick.algo.xyz - but mail isn't owned by patrick
 			// so we should act like it doesn't exist.
 			if nfdSegmentData.Internal["owner"] != nfdRootData.Internal["owner"] {
-				log.Warningf("nfdSegmentData.Internal.owner: %s != %s", nfdSegmentData.Internal["owner"], nfdRootData.Internal["owner"])
+				log.Warningf("nfdSegmentData.Internal.owner: (%s) %s != (%s) %s", nfdSegmentData.Internal["name"], nfdSegmentData.Internal["owner"],
+					nfdRootData.Internal["name"], nfdRootData.Internal["owner"])
 				return nil, ErrNfdSplitOwnership
 			}
 			segmentJsonRrs, err = NfdToJsonRRs(ctx, nfdSegmentData)
