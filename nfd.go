@@ -158,7 +158,7 @@ func (n *NfdPlugin) Lookup(ctx context.Context, state request.Request) ([]dns.RR
 		return nil, nil, nil, NoData
 	}
 	if err != nil {
-		log.Errorf("error getting NFDs: %v", err)
+		log.Errorf("error getting NFD: %s: %v", qname, err)
 		return nil, nil, nil, ServerFailure
 	}
 
