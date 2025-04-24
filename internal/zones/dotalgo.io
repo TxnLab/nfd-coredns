@@ -7,10 +7,9 @@ $ORIGIN dotalgo.io.
                              7D         ; Expire
                              4H )       ; Negative Cache TTL
 
-@ 3600 IN NS nz1.nfdomains.dev.
-@ 3600 IN NS nz2.nfdomains.dev.
+@ 3600 IN NS ns1.nfdomains.dev.
+@ 3600 IN NS ns2.nfdomains.dev.
 
 @ 14400 IN A 34.111.170.195
-* 14400 IN A 34.111.170.195
 @ 14400 IN CAA 0 issue "sectigo.com"
 @ 14400 IN CAA 0 issuewild "sectigo.com"
