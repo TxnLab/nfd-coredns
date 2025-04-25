@@ -119,6 +119,8 @@ func (n *NfdPlugin) Lookup(ctx context.Context, state request.Request) ([]dns.RR
 		fallthrough
 	case dns.TypeMX:
 		fallthrough
+	case dns.TypeSRV:
+		fallthrough
 	case dns.TypeA:
 		fallthrough
 	case dns.TypeAAAA:
@@ -232,6 +234,8 @@ func (n *NfdPlugin) Query(jsonRecords []nfd.JsonRr, queryName string, qType uint
 		fallthrough
 	case dns.TypeMX:
 		fallthrough
+	case dns.TypeSRV:
+		fallthrough
 	case dns.TypeA:
 		fallthrough
 	case dns.TypeAAAA:
@@ -240,36 +244,6 @@ func (n *NfdPlugin) Query(jsonRecords []nfd.JsonRr, queryName string, qType uint
 		return nil, errNotImplemented
 	}
 }
-
-//func (n *NfdPlugin) handleSOA(qName string) ([]dns.RR, error) {
-//	now := time.Now()
-//	ser := ((now.Hour()*3600 + now.Minute()) * 100) / 86400
-//	dateStr := fmt.Sprintf("%04d%02d%02d%02d", now.Year(), now.Month(), now.Day(), ser)
-//
-//	var results []dns.RR
-//	if len(n.nfdNameServers) > 0 {
-//		// Create a synthetic SOA record (borrowed from coreens eg)
-//		result, err := dns.NewRR(fmt.Sprintf("%s 10800 IN SOA %s hostmaster.%s %s 3600 600 1209600 300", qName, n.nfdNameServers[0], n.nfdNameServers[0], dateStr))
-//		if err != nil {
-//			return results, err
-//		}
-//		results = append(results, result)
-//	}
-//	return results, nil
-//}
-//
-//func (n *NfdPlugin) handleNS(qname string) ([]dns.RR, error) {
-//	results := make([]dns.RR, 0)
-//	for _, nameserver := range n.nfdNameServers {
-//		result, err := dns.NewRR(fmt.Sprintf("%s 3600 IN NS %s", qname, nameserver))
-//		if err != nil {
-//			return results, err
-//		}
-//		results = append(results, result)
-//	}
-//
-//	return results, nil
-//}
 
 func (n *NfdPlugin) LookupViaForwarder(ctx context.Context, state request.Request) ([]dns.RR, []dns.RR, []dns.RR, Result) {
 	writer := nonwriter.New(state.W)
