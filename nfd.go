@@ -73,12 +73,12 @@ func (n *NfdPlugin) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.M
 		return dns.RcodeSuccess, nil
 	case NoData:
 		if n.Next == nil {
-			log.Debugf("No data for %s, no next plugin", state.Name())
+			log.Debugf("No data for %s (%s), no next plugin", state.Name(), state.Type())
 			state.SizeAndDo(a)
 			w.WriteMsg(a)
 			return dns.RcodeSuccess, nil
 		}
-		log.Debugf("No data for %s, delegating to next plugin:%s", state.Name(), n.Next.Name())
+		log.Debugf("No data for %s (%s), delegating to next plugin:%s", state.Name(), state.Type(), n.Next.Name())
 		return plugin.NextOrFailure(n.Name(), n.Next, ctx, w, r)
 	case NameError:
 		log.Warningf("name error for %s, returning RcodeNameError (NXDomain)", state.Name())
