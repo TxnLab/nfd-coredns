@@ -33,20 +33,22 @@ import (
 )
 
 var (
-	ErrNfdNotFound       = errors.New("nfd not found")
-	ErrNFdIncompatible   = errors.New("nfd incompatible")
-	ErrNfdExpired        = errors.New("nfd expired")
-	ErrNfdNotOwned       = errors.New("nfd not owned")
-	ErrNfdSplitOwnership = errors.New("nfd segment has different owner than root")
+	ErrNfdNotFound     = errors.New("nfd not found")
+	ErrNFdIncompatible = errors.New("nfd incompatible")
+	ErrNfdExpired      = errors.New("nfd expired")
+	ErrNfdNotOwned     = errors.New("nfd not owned")
 )
 
+type NfdFetcher interface {
+	FetchNfdDnsVals(ctx context.Context, names []string) (map[string]Properties, error)
+}
 type nfdFetcher struct {
 	Client     *algod.Client
 	RegistryId uint64
 	AlgoXyzIp  string
 }
 
-func newNfdFetcher(client *algod.Client, registryID uint64, algoXyzIp string) *nfdFetcher {
+func newNfdFetcher(client *algod.Client, registryID uint64, algoXyzIp string) NfdFetcher {
 	return &nfdFetcher{Client: client, RegistryId: registryID, AlgoXyzIp: algoXyzIp}
 }
 

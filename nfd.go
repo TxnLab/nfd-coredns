@@ -23,7 +23,7 @@ import (
 type NfdPlugin struct {
 	Next           plugin.Handler
 	Forwarder      plugin.Handler
-	NfdCache       *nfd.Cache
+	NfdHandler     nfd.NfdRRHandler
 	nfdNameServers []string
 }
 
@@ -121,6 +121,8 @@ func (n *NfdPlugin) Lookup(ctx context.Context, state request.Request) ([]dns.RR
 		fallthrough
 	case dns.TypeSRV:
 		fallthrough
+	case dns.TypeCERT:
+		fallthrough
 	case dns.TypeA:
 		fallthrough
 	case dns.TypeAAAA:
@@ -155,7 +157,7 @@ func (n *NfdPlugin) Lookup(ctx context.Context, state request.Request) ([]dns.RR
 		authorityRrs  []dns.RR
 		additionalRrs []dns.RR
 	)
-	mergedJsonRrs, err := n.NfdCache.GetNfdRRs(ctx, log, qname)
+	mergedJsonRrs, err := n.NfdHandler.GetNfdRRs(ctx, log, qname)
 	if errors.Is(err, nfd.ErrNfdNotFound) || (err == nil && mergedJsonRrs == nil) {
 		return nil, nil, nil, NoData
 	}
@@ -235,6 +237,8 @@ func (n *NfdPlugin) Query(jsonRecords []nfd.JsonRr, queryName string, qType uint
 	case dns.TypeMX:
 		fallthrough
 	case dns.TypeSRV:
+		fallthrough
+	case dns.TypeCERT:
 		fallthrough
 	case dns.TypeA:
 		fallthrough
