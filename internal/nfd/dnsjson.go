@@ -15,6 +15,10 @@ import (
 	"github.com/miekg/dns"
 )
 
+var (
+	ErrInvalidDNSJson = fmt.Errorf("invalid DNS json")
+)
+
 type JsonRRs struct {
 	Rrs []JsonRr `json:"rr"`
 }
@@ -29,14 +33,18 @@ type JsonRr struct {
 	Type   string   `json:"type"`
 }
 
-func NfdToJsonRRs(_ context.Context, nfdProps Properties) ([]JsonRr, error) {
+// nfdToJsonRRs converts NFD properties to a slice of JsonRr records, processing DNS json data and merging in
+// Bluesky data if available.
+// It returns an error if DNS data unmarshalling fails.
+func nfdToJsonRRs(_ context.Context, nfdProps Properties) ([]JsonRr, error) {
 	dnsVal, found := nfdProps.UserDefined["dns"]
 	var dnsResult []JsonRr
 	if found {
 		// unmarshal into dnsResult
 		err := json.Unmarshal([]byte(dnsVal), &dnsResult)
 		if err != nil {
-			return nil, fmt.Errorf("failed to unmarshal dns property: %v", err)
+			//return nil, errors.Wrapf(ErrInvalidDNSJson, "failed to unmarshal dns property: %v", err)
+			return nil, ErrInvalidDNSJson
 		}
 	}
 	// Mix in bluesky record if appropriate

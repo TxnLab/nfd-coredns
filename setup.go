@@ -93,7 +93,7 @@ func setupNfd(c *caddy.Controller) error {
 		nfdPlugin := &NfdPlugin{
 			Next:      filePlugin,
 			Forwarder: forwarder,
-			NfdCache: nfd.NewNfdCache(
+			NfdHandler: nfd.NewNfdRRHandler(
 				algoClient,
 				pluginCfg.registryID,
 				pluginCfg.algoXyzIp,
