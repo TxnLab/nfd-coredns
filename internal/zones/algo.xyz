@@ -13,3 +13,5 @@ $ORIGIN algo.xyz.
 @ 14400 IN A 34.111.170.195
 @ 14400 IN CAA 0 issue "sectigo.com"
 @ 14400 IN CAA 0 issuewild "sectigo.com"
+
+@ 3600 IN TXT google-site-verification=ssLKPaD_nABXtAp8usSDmm98Bg5-_7OdCcOp7gAsxpc
