@@ -8,7 +8,7 @@ $ORIGIN algo.xyz.
                              4H )       ; Negative Cache TTL
 
 @ 3600 IN NS ns1.nfdomains.dev.
-@ 3600 IN NS ns2.nfdomains.dev.
+@ 3600 IN NS algo2.ns.nodely.io.
 
 @ 14400 IN A 34.111.170.195
 @ 14400 IN CAA 0 issue "sectigo.com"
