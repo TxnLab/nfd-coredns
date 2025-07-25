@@ -8,6 +8,7 @@ package main
 import (
 	"github.com/coredns/coredns/core/dnsserver"
 	"github.com/coredns/coredns/coremain"
+	_ "github.com/coredns/coredns/plugin/bind"
 	_ "github.com/coredns/coredns/plugin/cache"
 	_ "github.com/coredns/coredns/plugin/cancel"
 	_ "github.com/coredns/coredns/plugin/debug"
@@ -25,6 +26,7 @@ var directives = []string{
 	"root:root",
 	"cancel",
 	"reload",
+	"bind",
 	"debug",
 	"health",
 	"prometheus",
