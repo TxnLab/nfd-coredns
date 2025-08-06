@@ -43,8 +43,8 @@ func nfdToJsonRRs(_ context.Context, nfdProps Properties) ([]JsonRr, error) {
 		// unmarshal into dnsResult
 		err := json.Unmarshal([]byte(dnsVal), &dnsResult)
 		if err != nil {
-			//return nil, errors.Wrapf(ErrInvalidDNSJson, "failed to unmarshal dns property: %v", err)
-			return nil, ErrInvalidDNSJson
+			// return nil, errors.Wrapf(ErrInvalidDNSJson, "failed to unmarshal dns property: %v", err)
+			return nil, fmt.Errorf("failed to unmarshal dns property: %w", ErrInvalidDNSJson)
 		}
 	}
 	// Mix in bluesky record if appropriate
@@ -82,7 +82,7 @@ func DnsRRsFromJsonRRs(jsonRecords []JsonRr, queryName string, rrType uint16) ([
 		//  ],
 		//  "ttl": 86400,
 		//  "type": "MX"
-		//}
+		// }
 		// would get converted to not one, but two records, using the same values except for the rrdatas at the end
 		// example.com. 86400 IN MX 10 mail.example.com.
 		// example.com. 86400 IN MX 20 mail2.example.com.

@@ -25,6 +25,7 @@ func TestGetNfdRRs(t *testing.T) {
 		qname         string
 		nfdRRHandler  func(handler *nfdRRHandler)
 		expectedError error
+		expectedErrIs error
 		expectedRRs   []JsonRr
 	}{
 		{
@@ -101,7 +102,7 @@ func TestGetNfdRRs(t *testing.T) {
 					},
 				}
 			},
-			expectedError: ErrInvalidDNSJson,
+			expectedErrIs: ErrInvalidDNSJson,
 			expectedRRs:   nil,
 		},
 		{
@@ -245,7 +246,11 @@ func TestGetNfdRRs(t *testing.T) {
 			tt.nfdRRHandler(handler)
 			log := clog.NewWithPlugin("test-plugin")
 			gotRRs, gotErr := handler.GetNfdRRs(context.Background(), log, tt.qname)
-			assert.Equal(t, tt.expectedError, gotErr)
+			if tt.expectedErrIs != nil {
+				assert.ErrorIs(t, gotErr, tt.expectedErrIs)
+			} else {
+				assert.Equal(t, tt.expectedError, gotErr)
+			}
 			assert.Equal(t, tt.expectedRRs, gotRRs)
 		})
 	}
