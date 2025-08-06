@@ -5,7 +5,7 @@ go 1.24.0
 require (
 	github.com/algorand/go-algorand-sdk/v2 v2.10.0
 	github.com/coredns/caddy v1.1.2-0.20241029205200-8de985351a98
-	github.com/coredns/coredns v1.12.2
+	github.com/coredns/coredns v1.12.3
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/mailgun/holster/v4 v4.21.0
 	github.com/miekg/dns v1.1.68
@@ -36,7 +36,7 @@ require (
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.65.0 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
-	github.com/quic-go/quic-go v0.52.0 // indirect
+	github.com/quic-go/quic-go v0.54.0 // indirect
 	github.com/rogpeppe/go-internal v1.13.1 // indirect
 	go.uber.org/automaxprocs v1.6.0 // indirect
 	go.uber.org/mock v0.5.2 // indirect
