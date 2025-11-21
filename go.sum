@@ -114,6 +114,8 @@ github.com/cihub/seelog v0.0.0-20170130134532-f561c5e57575 h1:kHaBemcxl8o/pQ5VM1
 github.com/cihub/seelog v0.0.0-20170130134532-f561c5e57575/go.mod h1:9d6lWj8KzO/fd/NrVaLscBKmPigpZpn5YawRPw+e3Yo=
 github.com/coredns/caddy v1.1.2-0.20241029205200-8de985351a98 h1:c+Epklw9xk6BZ1OFBPWLA2PcL8QalKvl3if8CP9x8uw=
 github.com/coredns/caddy v1.1.2-0.20241029205200-8de985351a98/go.mod h1:A6ntJQlAWuQfFlsd9hvigKbo2WS0VUs2l1e2F+BawD4=
+github.com/coredns/caddy v1.1.3 h1:zy+rYOAhG1Qjxnaf4QGIglYpR3io9YTJ67abYbEgfwY=
+github.com/coredns/caddy v1.1.3/go.mod h1:A6ntJQlAWuQfFlsd9hvigKbo2WS0VUs2l1e2F+BawD4=
 github.com/coredns/coredns v1.12.2 h1:G4oDfi340zlVsriZ8nYiUemiQIew7nqOO+QPvPxIA4Y=
 github.com/coredns/coredns v1.12.2/go.mod h1:GFz31oVOfCyMArFoypfu1SoaFoNkbdh6lDxtF1B6vfU=
 github.com/coredns/coredns v1.12.3 h1:jYdwHGOj5tTPA+OPEq8aR5aqWkwu3Mgvaqfy14MiDZA=

@@ -4,7 +4,7 @@ go 1.24.0
 
 require (
 	github.com/algorand/go-algorand-sdk/v2 v2.10.0
-	github.com/coredns/caddy v1.1.2-0.20241029205200-8de985351a98
+	github.com/coredns/caddy v1.1.3
 	github.com/coredns/coredns v1.12.3
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/mailgun/holster/v4 v4.21.0
