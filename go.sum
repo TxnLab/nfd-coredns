@@ -103,6 +103,8 @@ github.com/ahmetb/go-linq v3.0.0+incompatible h1:qQkjjOXKrKOTy83X8OpRmnKflXKQIL/
 github.com/ahmetb/go-linq v3.0.0+incompatible/go.mod h1:PFffvbdbtw+QTB0WKRP0cNht7vnCfnGlEpak/DVg5cY=
 github.com/algorand/go-algorand-sdk/v2 v2.10.0 h1:4UW/UwW51ugNVQKclvTkc42gicRXSt5f+YAcTufLv/0=
 github.com/algorand/go-algorand-sdk/v2 v2.10.0/go.mod h1:D6iKT87/N6ajNpN7uMYPC9/RsOo2BbxnDfvh81E3hOM=
+github.com/algorand/go-algorand-sdk/v2 v2.11.1 h1:vOEQxGTCV0O6fgwItNpvv5AQwQQ5aba8PLilGYLkMF4=
+github.com/algorand/go-algorand-sdk/v2 v2.11.1/go.mod h1:D6iKT87/N6ajNpN7uMYPC9/RsOo2BbxnDfvh81E3hOM=
 github.com/algorand/go-codec/codec v1.1.10 h1:zmWYU1cp64jQVTOG8Tw8wa+k0VfwgXIPbnDfiVa+5QA=
 github.com/algorand/go-codec/codec v1.1.10/go.mod h1:YkEx5nmr/zuCeaDYOIhlDg92Lxju8tj2d2NrYqP7g7k=
 github.com/apparentlymart/go-cidr v1.1.0 h1:2mAhrMoF+nhXqxTzSZMUzDHkLjmIHC+Zzn4tdgBZjnU=

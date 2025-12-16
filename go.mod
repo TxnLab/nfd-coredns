@@ -3,7 +3,7 @@ module github.com/TxnLab/nfd-coredns
 go 1.25.0
 
 require (
-	github.com/algorand/go-algorand-sdk/v2 v2.10.0
+	github.com/algorand/go-algorand-sdk/v2 v2.11.1
 	github.com/coredns/caddy v1.1.4-0.20250930002214-15135a999495
 	github.com/coredns/coredns v1.13.2
 	github.com/hashicorp/golang-lru/v2 v2.0.7
