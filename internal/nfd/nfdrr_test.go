@@ -235,6 +235,53 @@ func TestGetNfdRRs(t *testing.T) {
 			expectedError: ErrNfdSplitOwnership,
 			expectedRRs:   nil,
 		},
+		{
+			name:  "regular segment fetch",
+			qname: "defi.nfdomains.algo.",
+			nfdRRHandler: func(handler *nfdRRHandler) {
+				handler.nfdFetcher = &mockNfdFetcher{
+					fetchFunc: func(ctx context.Context, log clog.P, names []string) (map[string]Properties, error) {
+						rootDns := []JsonRr{
+							{
+								Name:   "nfdomains.algo.",
+								RrData: []string{},
+							},
+						}
+						rootJson, _ := json.Marshal(rootDns)
+						segmentDns := []JsonRr{
+							{
+								Name:   "defi.nfdomains.algo.",
+								RrData: []string{},
+							},
+						}
+						segentJson, _ := json.Marshal(segmentDns)
+
+						return map[string]Properties{
+							"nfdomains.algo": {
+								Internal:    map[string]string{"name": "nfdomains.algo", "owner": "owner1"},
+								UserDefined: map[string]string{"dns": string(rootJson)},
+							},
+							"defi.nfdomains.algo": {
+								Internal:    map[string]string{"name": "defi.nfdomains.algo", "owner": "owner1"},
+								UserDefined: map[string]string{"dns": string(segentJson)},
+							},
+						}, nil
+					},
+				}
+			},
+			expectedError: nil,
+			// expect merged values
+			expectedRRs: []JsonRr{
+				{
+					Name:   "nfdomains.algo.",
+					RrData: []string{},
+				},
+				{
+					Name:   "defi.nfdomains.algo.",
+					RrData: []string{},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
