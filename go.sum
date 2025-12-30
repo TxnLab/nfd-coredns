@@ -182,6 +182,8 @@ github.com/coredns/caddy v1.1.2-0.20241029205200-8de985351a98 h1:c+Epklw9xk6BZ1O
 github.com/coredns/caddy v1.1.2-0.20241029205200-8de985351a98/go.mod h1:A6ntJQlAWuQfFlsd9hvigKbo2WS0VUs2l1e2F+BawD4=
 github.com/coredns/caddy v1.1.4-0.20250930002214-15135a999495 h1:JFeOmbjLnVRhvmLHyuO3M1pfXWlPWpwkdM8UqXZRtBg=
 github.com/coredns/caddy v1.1.4-0.20250930002214-15135a999495/go.mod h1:A6ntJQlAWuQfFlsd9hvigKbo2WS0VUs2l1e2F+BawD4=
+github.com/coredns/caddy v1.1.4 h1:+Lls5xASB0QsA2jpCroCOwpPlb5GjIGlxdjXxdX0XVo=
+github.com/coredns/caddy v1.1.4/go.mod h1:A6ntJQlAWuQfFlsd9hvigKbo2WS0VUs2l1e2F+BawD4=
 github.com/coredns/coredns v1.12.2 h1:G4oDfi340zlVsriZ8nYiUemiQIew7nqOO+QPvPxIA4Y=
 github.com/coredns/coredns v1.12.2/go.mod h1:GFz31oVOfCyMArFoypfu1SoaFoNkbdh6lDxtF1B6vfU=
 github.com/coredns/coredns v1.12.3 h1:jYdwHGOj5tTPA+OPEq8aR5aqWkwu3Mgvaqfy14MiDZA=
