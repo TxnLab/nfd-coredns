@@ -72,7 +72,7 @@ jobs:
     steps:
       - name: Push hash to environment repo to start deploy process [if main]
         if: ${{ github.ref_name == 'main' }}
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GH_ENV_TOKEN }}
           script: |
