@@ -6,7 +6,7 @@ RUN apk --no-cache add tzdata zip ca-certificates git make
 COPY go.* ./
 RUN go mod download
 COPY . ./
-RUN --mount=type=cache,target=/root/.cache/go-build env GOOS=linux GOARCH=amd64 go build -v -o out/ -ldflags="-s -w -X github.com/coredns/coredns/coremain.GitCommit=$(git describe --dirty --always)" .
+RUN --mount=type=cache,target=/root/.cache/go-build env GOOS=linux GOARCH=amd64 go build -v -tags=goexperiment.jsonv2 -o out/ -ldflags="-s -w -X github.com/coredns/coredns/coremain.GitCommit=$(git describe --dirty --always)" .
 
 FROM scratch
 WORKDIR /app
