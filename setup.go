@@ -17,6 +17,7 @@ import (
 
 	"github.com/algorand/go-algorand-sdk/v2/client/v2/algod"
 	"github.com/coredns/caddy"
+	"github.com/miekg/dns"
 
 	"github.com/coredns/coredns/plugin/file"
 
@@ -59,6 +60,7 @@ func setupNfd(c *caddy.Controller) error {
 	dnsserver.GetConfig(c).AddPlugin(func(next plugin.Handler) plugin.Handler {
 		var (
 			zoneConfig = map[string]*file.Zone{}
+			zoneSOA    dns.RR // SOA for negative responses (RFC 2308)
 		)
 		fs.WalkDir(embeddedZones, "internal/zones", func(path string, d fs.DirEntry, err error) error {
 			if d.IsDir() {
@@ -70,11 +72,18 @@ func setupNfd(c *caddy.Controller) error {
 			if err != nil {
 				log.Fatalf("failed to open embedded zone %s: %v", path, err)
 			}
-			algoZone, err := file.Parse(zoneFile, origin, d.Name(), 0)
+			parsedZone, err := file.Parse(zoneFile, origin, d.Name(), 0)
 			if err != nil {
 				log.Fatalf("failed to parse zone: %v", err)
 			}
-			zoneConfig[origin] = algoZone
+			zoneConfig[origin] = parsedZone
+
+			// Extract SOA from algo.xyz zone for use in negative responses
+			if origin == "algo.xyz." {
+				if apex, apexErr := parsedZone.ApexIfDefined(); apexErr == nil && len(apex) > 0 {
+					zoneSOA = apex[0] // SOA is first record
+				}
+			}
 			return nil
 		})
 		filePlugin := file.File{
@@ -99,7 +108,7 @@ func setupNfd(c *caddy.Controller) error {
 				pluginCfg.algoXyzIp,
 				time.Duration(pluginCfg.cacheMins)*time.Minute,
 			),
-			nfdNameServers: pluginCfg.nfdNameServers,
+			zoneSOA: zoneSOA,
 		}
 
 		return nfdPlugin
@@ -109,12 +118,11 @@ func setupNfd(c *caddy.Controller) error {
 }
 
 type nfdPluginConfig struct {
-	nodeUrl        string
-	token          string
-	registryID     uint64
-	nfdNameServers []string
-	algoXyzIp      string
-	cacheMins      int
+	nodeUrl    string
+	token      string
+	registryID uint64
+	algoXyzIp  string
+	cacheMins  int
 }
 
 func nfdParse(c *caddy.Controller) (*nfdPluginConfig, error) {
@@ -126,7 +134,6 @@ func nfdParse(c *caddy.Controller) (*nfdPluginConfig, error) {
 		cacheMins  int    = defCacheMinutes
 		err        error
 	)
-	nfdNameServers := make([]string, 0)
 
 	c.Next()
 	for c.NextBlock() {
@@ -186,13 +193,6 @@ func nfdParse(c *caddy.Controller) (*nfdPluginConfig, error) {
 			if err != nil {
 				return nil, c.Errf("invalid integer value for cache minutes")
 			}
-		case "nameservers":
-			args := c.RemainingArgs()
-			if len(args) == 0 {
-				return nil, c.Errf("invalid nameservers; no value")
-			}
-			nfdNameServers = make([]string, len(args))
-			copy(nfdNameServers, args)
 		default:
 			return nil, c.Errf("unknown value %v", c.Val())
 		}
@@ -200,29 +200,19 @@ func nfdParse(c *caddy.Controller) (*nfdPluginConfig, error) {
 	if node == "" {
 		return nil, c.Errf("no node")
 	}
-	if len(nfdNameServers) == 0 {
-		return nil, c.Errf("no nameservers")
-	}
-	for i := range nfdNameServers {
-		if !strings.HasSuffix(nfdNameServers[i], ".") {
-			nfdNameServers[i] = nfdNameServers[i] + "."
-		}
-	}
 	log.Infof(
-		"node: %s, token: %s, registryID: %d, nameservers: %v, algoXyzIp: %s, cacheMins: %d",
+		"node: %s, token: %s, registryID: %d, algoXyzIp: %s, cacheMins: %d",
 		node,
 		token,
 		registryID,
-		nfdNameServers,
 		algoXyzIp,
 		cacheMins,
 	)
 	return &nfdPluginConfig{
-		nodeUrl:        node,
-		token:          token,
-		registryID:     registryID,
-		nfdNameServers: nfdNameServers,
-		algoXyzIp:      algoXyzIp,
-		cacheMins:      cacheMins,
+		nodeUrl:    node,
+		token:      token,
+		registryID: registryID,
+		algoXyzIp:  algoXyzIp,
+		cacheMins:  cacheMins,
 	}, nil
 }
