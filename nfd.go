@@ -21,10 +21,10 @@ import (
 
 // NfdPlugin is a plugin that returns information held in the Ethereum Name Service.
 type NfdPlugin struct {
-	Next           plugin.Handler
-	Forwarder      plugin.Handler
-	NfdHandler     nfd.NfdRRHandler
-	nfdNameServers []string
+	Next       plugin.Handler
+	Forwarder  plugin.Handler
+	NfdHandler nfd.NfdRRHandler
+	zoneSOA    dns.RR // SOA record for negative responses (RFC 2308)
 }
 
 // Result of a lookup
@@ -166,6 +166,16 @@ func (n *NfdPlugin) Lookup(ctx context.Context, state request.Request) ([]dns.RR
 		return nil, nil, nil, ServerFailure
 	}
 
+	// NS queries on NFD subdomains return Success with empty answer + SOA in authority
+	// Per RFC 2308: existing name with no records of requested type
+	// NFDs are not delegated subzones and cannot define their own NS records
+	if qtype == dns.TypeNS {
+		if n.zoneSOA != nil {
+			return nil, []dns.RR{n.zoneSOA}, nil, Success
+		}
+		return nil, nil, nil, NoData
+	}
+
 	// If we aren't asking for a CNAME then check for one to see if we need
 	// to recurse
 	if qtype != dns.TypeCNAME {
@@ -195,9 +205,10 @@ func (n *NfdPlugin) Lookup(ctx context.Context, state request.Request) ([]dns.RR
 				answerRrs = append(answerRrs, targetAnswerRrs...)
 				authorityRrs = append(authorityRrs, targetAuthorityRrs...)
 				additionalRrs = append(additionalRrs, targetAdditionalRrs...)
+				return answerRrs, authorityRrs, additionalRrs, Success
 			}
-			log.Warning("cname derived lookup failed - returning original answerRrs")
-			return answerRrs, authorityRrs, additionalRrs, targetResult
+			log.Warning("cname derived lookup failed - returning CNAME only")
+			return answerRrs, authorityRrs, additionalRrs, Success
 		}
 	}
 

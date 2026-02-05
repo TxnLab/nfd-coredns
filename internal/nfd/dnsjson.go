@@ -19,6 +19,12 @@ var (
 	ErrInvalidDNSJson = fmt.Errorf("invalid DNS json")
 )
 
+const (
+	minTTL     = 60    // 1 minute minimum
+	maxTTL     = 86400 // 24 hours maximum
+	defaultTTL = 300   // 5 minutes default
+)
+
 type JsonRRs struct {
 	Rrs []JsonRr `json:"rr"`
 }
@@ -86,9 +92,9 @@ func DnsRRsFromJsonRRs(jsonRecords []JsonRr, queryName string, rrType uint16) ([
 		// would get converted to not one, but two records, using the same values except for the rrdatas at the end
 		// example.com. 86400 IN MX 10 mail.example.com.
 		// example.com. 86400 IN MX 20 mail2.example.com.
-		ttl := 300
-		if jsonRecord.Ttl != 0 {
-			ttl = jsonRecord.Ttl
+		ttl := defaultTTL
+		if jsonRecord.Ttl > 0 {
+			ttl = min(max(jsonRecord.Ttl, minTTL), maxTTL)
 		}
 		for _, rrdata := range jsonRecord.RrData {
 			dnsString := jsonRecord.Name + " " + strconv.Itoa(ttl) + " " + dns.ClassToString[dns.ClassINET] + " " + jsonRecord.Type + " "
