@@ -236,6 +236,58 @@ func TestGetNfdRRs(t *testing.T) {
 			expectedRRs:   nil,
 		},
 		{
+			name:  "bare label subdomain - grafana.corvid.algo",
+			qname: "grafana.corvid.algo.",
+			nfdRRHandler: func(handler *nfdRRHandler) {
+				handler.nfdFetcher = &mockNfdFetcher{
+					fetchFunc: func(ctx context.Context, log clog.P, names []string) (map[string]Properties, error) {
+						dummyAccount := crypto.GenerateAccount()
+						corvidDns := `[{"name":"@","rrData":["72.60.148.52"],"type":"a","ttl":3600},{"name":"www","rrData":["corvid.algo.xyz"],"type":"cname","ttl":3600},{"name":"@","rrData":["2a02:4780:66:5c13::1"],"type":"aaaa","ttl":3600},{"name":"grafana","rrData":["72.60.148.52"],"type":"a","ttl":3600}]`
+						// Only corvid.algo exists - grafana.corvid.algo is NOT a segment NFD
+						return map[string]Properties{
+							"corvid.algo": {
+								Internal:    map[string]string{"name": "corvid.algo", "owner": dummyAccount.Address.String()},
+								UserDefined: map[string]string{"dns": corvidDns},
+							},
+						}, nil
+					},
+				}
+			},
+			expectedError: nil,
+			expectedRRs: []JsonRr{
+				{Name: "corvid.algo.", RrData: []string{"72.60.148.52"}, Type: "a", Ttl: 3600},
+				{Name: "www.corvid.algo.", RrData: []string{"corvid.algo.xyz"}, Type: "cname", Ttl: 3600},
+				{Name: "corvid.algo.", RrData: []string{"2a02:4780:66:5c13::1"}, Type: "aaaa", Ttl: 3600},
+				{Name: "grafana.corvid.algo.", RrData: []string{"72.60.148.52"}, Type: "a", Ttl: 3600},
+			},
+		},
+		{
+			name:  "root domain with mixed record types - corvid.algo",
+			qname: "corvid.algo.",
+			nfdRRHandler: func(handler *nfdRRHandler) {
+				handler.nfdFetcher = &mockNfdFetcher{
+					fetchFunc: func(ctx context.Context, log clog.P, names []string) (map[string]Properties, error) {
+						dummyAccount := crypto.GenerateAccount()
+						corvidDns := `[{"name":"@","rrData":["72.60.148.52"],"type":"a","ttl":3600},{"name":"@","rrData":["2a02:4780:66:5c13::1"],"type":"aaaa","ttl":3600},{"name":"@","rrData":["10 mail.protonmail.ch","20 mailsec.protonmail.ch"],"type":"mx","ttl":3600},{"name":"@","rrData":["0 issue \"letsencrypt.org\""],"type":"caa","ttl":3600},{"name":"grafana","rrData":["72.60.148.52"],"type":"a","ttl":3600}]`
+						return map[string]Properties{
+							"corvid.algo": {
+								Internal:    map[string]string{"name": "corvid.algo", "owner": dummyAccount.Address.String()},
+								UserDefined: map[string]string{"dns": corvidDns},
+							},
+						}, nil
+					},
+				}
+			},
+			expectedError: nil,
+			expectedRRs: []JsonRr{
+				{Name: "corvid.algo.", RrData: []string{"72.60.148.52"}, Type: "a", Ttl: 3600},
+				{Name: "corvid.algo.", RrData: []string{"2a02:4780:66:5c13::1"}, Type: "aaaa", Ttl: 3600},
+				{Name: "corvid.algo.", RrData: []string{"10 mail.protonmail.ch", "20 mailsec.protonmail.ch"}, Type: "mx", Ttl: 3600},
+				{Name: "corvid.algo.", RrData: []string{"0 issue \"letsencrypt.org\""}, Type: "caa", Ttl: 3600},
+				{Name: "grafana.corvid.algo.", RrData: []string{"72.60.148.52"}, Type: "a", Ttl: 3600},
+			},
+		},
+		{
 			name:  "regular segment fetch",
 			qname: "defi.nfdomains.algo.",
 			nfdRRHandler: func(handler *nfdRRHandler) {

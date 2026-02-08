@@ -128,8 +128,13 @@ func ConvertOriginRefs(_ context.Context, fqdn string, rrs []JsonRr) {
 				rrs[i].Name = strings.TrimSuffix(rr.Name, ".dotalgo.io") + ".algo."
 			}
 			if !strings.HasSuffix(rrs[i].Name, ".") {
-				// always add '.' to end since that's what the query name will have
-				rrs[i].Name += "."
+				if strings.HasSuffix(rrs[i].Name, ".algo") {
+					// Already fully qualified (e.g., "www.patrick.algo"), just needs trailing dot
+					rrs[i].Name += "."
+				} else {
+					// Bare/relative label (e.g., "grafana") - make relative to FQDN
+					rrs[i].Name = rrs[i].Name + "." + dns.Fqdn(fqdn)
+				}
 			}
 		}
 	}

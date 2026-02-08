@@ -232,6 +232,68 @@ func TestLookup(t *testing.T) {
 			expectedResult: ServerFailure,
 			expectedAnswer: 0,
 		},
+		{
+			name:  "subdomain A record lookup - bare label",
+			qname: "grafana.corvid.algo.",
+			qtype: dns.TypeA,
+			mockHandler: &mockNfdRRHandler{
+				rrs: []nfd.JsonRr{
+					{Name: "corvid.algo.", Type: "a", RrData: []string{"72.60.148.52"}, Ttl: 3600},
+					{Name: "grafana.corvid.algo.", Type: "a", RrData: []string{"72.60.148.52"}, Ttl: 3600},
+				},
+			},
+			expectedResult: Success,
+			expectedAnswer: 1,
+		},
+		{
+			name:  "root A record lookup - corvid.algo",
+			qname: "corvid.algo.",
+			qtype: dns.TypeA,
+			mockHandler: &mockNfdRRHandler{
+				rrs: []nfd.JsonRr{
+					{Name: "corvid.algo.", Type: "a", RrData: []string{"72.60.148.52"}, Ttl: 3600},
+					{Name: "grafana.corvid.algo.", Type: "a", RrData: []string{"72.60.148.52"}, Ttl: 3600},
+				},
+			},
+			expectedResult: Success,
+			expectedAnswer: 1,
+		},
+		{
+			name:  "root AAAA record lookup - corvid.algo",
+			qname: "corvid.algo.",
+			qtype: dns.TypeAAAA,
+			mockHandler: &mockNfdRRHandler{
+				rrs: []nfd.JsonRr{
+					{Name: "corvid.algo.", Type: "aaaa", RrData: []string{"2a02:4780:66:5c13::1"}, Ttl: 3600},
+				},
+			},
+			expectedResult: Success,
+			expectedAnswer: 1,
+		},
+		{
+			name:  "root MX record lookup - corvid.algo",
+			qname: "corvid.algo.",
+			qtype: dns.TypeMX,
+			mockHandler: &mockNfdRRHandler{
+				rrs: []nfd.JsonRr{
+					{Name: "corvid.algo.", Type: "mx", RrData: []string{"10 mail.protonmail.ch.", "20 mailsec.protonmail.ch."}, Ttl: 3600},
+				},
+			},
+			expectedResult: Success,
+			expectedAnswer: 2,
+		},
+		{
+			name:  "root CAA record lookup - corvid.algo",
+			qname: "corvid.algo.",
+			qtype: dns.TypeCAA,
+			mockHandler: &mockNfdRRHandler{
+				rrs: []nfd.JsonRr{
+					{Name: "corvid.algo.", Type: "caa", RrData: []string{"0 issue \"letsencrypt.org\""}, Ttl: 3600},
+				},
+			},
+			expectedResult: Success,
+			expectedAnswer: 1,
+		},
 	}
 
 	for _, tt := range tests {
