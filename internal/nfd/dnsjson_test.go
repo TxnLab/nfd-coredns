@@ -355,6 +355,22 @@ func TestDnsRRsFromJsonRRs(t *testing.T) {
 				assert.Equal(t, uint32(defaultTTL), rrs[0].Header().Ttl)
 			},
 		},
+		{
+			name: "subdomain A record after bare label conversion",
+			jsonRecords: []JsonRr{
+				{Name: "grafana.corvid.algo.", Type: "a", RrData: []string{"72.60.148.52"}, Ttl: 3600},
+				{Name: "corvid.algo.", Type: "a", RrData: []string{"72.60.148.52"}, Ttl: 3600},
+			},
+			queryName:   "grafana.corvid.algo.",
+			rrType:      dns.TypeA,
+			expectCount: 1,
+			validate: func(t *testing.T, rrs []dns.RR) {
+				a, ok := rrs[0].(*dns.A)
+				require.True(t, ok)
+				assert.Equal(t, "72.60.148.52", a.A.String())
+				assert.Equal(t, uint32(3600), a.Hdr.Ttl)
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -462,6 +478,48 @@ func TestConvertOriginRefs(t *testing.T) {
 				{Name: "test.algo."},
 				{Name: "www.test.algo."},
 				{Name: "mail.test.algo."},
+			},
+		},
+		{
+			name: "bare label converted to FQDN",
+			fqdn: "corvid.algo",
+			input: []JsonRr{
+				{Name: "grafana"},
+			},
+			expected: []JsonRr{
+				{Name: "grafana.corvid.algo."},
+			},
+		},
+		{
+			name: "corvid.algo full DNS JSON conversion",
+			fqdn: "corvid.algo",
+			input: []JsonRr{
+				{Name: "@", RrData: []string{"72.60.148.52"}, Type: "a", Ttl: 3600},
+				{Name: "www", RrData: []string{"corvid.algo.xyz"}, Type: "cname", Ttl: 3600},
+				{Name: "@", RrData: []string{"2a02:4780:66:5c13::1"}, Type: "aaaa", Ttl: 3600},
+				{Name: "@", RrData: []string{"protonmail-verification=e17eef2d71c7c838cabe3aece28056e5187be95a"}, Type: "txt", Ttl: 3600},
+				{Name: "pera_3225439167.corvid.algo.xyz", RrData: []string{"pera_3225439167_V4mykD2U3k"}, Type: "txt", Ttl: 3600},
+				{Name: "@", RrData: []string{"10 mail.protonmail.ch", "20 mailsec.protonmail.ch"}, Type: "mx", Ttl: 3600},
+				{Name: "pera_project.corvid.algo.xyz", RrData: []string{"pera_project_vS064sgFss"}, Type: "txt", Ttl: 3600},
+				{Name: "@", RrData: []string{"0 issue \"letsencrypt.org\""}, Type: "caa", Ttl: 3600},
+				{Name: "bot", RrData: []string{"72.60.148.52"}, Type: "a", Ttl: 3600},
+				{Name: "test", RrData: []string{"72.60.148.52"}, Type: "a", Ttl: 3600},
+				{Name: "grafana", RrData: []string{"72.60.148.52"}, Type: "a", Ttl: 3600},
+				{Name: "jenkins", RrData: []string{"72.60.148.52"}, Type: "a", Ttl: 3600},
+			},
+			expected: []JsonRr{
+				{Name: "corvid.algo.", RrData: []string{"72.60.148.52"}, Type: "a", Ttl: 3600},
+				{Name: "www.corvid.algo.", RrData: []string{"corvid.algo.xyz"}, Type: "cname", Ttl: 3600},
+				{Name: "corvid.algo.", RrData: []string{"2a02:4780:66:5c13::1"}, Type: "aaaa", Ttl: 3600},
+				{Name: "corvid.algo.", RrData: []string{"protonmail-verification=e17eef2d71c7c838cabe3aece28056e5187be95a"}, Type: "txt", Ttl: 3600},
+				{Name: "pera_3225439167.corvid.algo.", RrData: []string{"pera_3225439167_V4mykD2U3k"}, Type: "txt", Ttl: 3600},
+				{Name: "corvid.algo.", RrData: []string{"10 mail.protonmail.ch", "20 mailsec.protonmail.ch"}, Type: "mx", Ttl: 3600},
+				{Name: "pera_project.corvid.algo.", RrData: []string{"pera_project_vS064sgFss"}, Type: "txt", Ttl: 3600},
+				{Name: "corvid.algo.", RrData: []string{"0 issue \"letsencrypt.org\""}, Type: "caa", Ttl: 3600},
+				{Name: "bot.corvid.algo.", RrData: []string{"72.60.148.52"}, Type: "a", Ttl: 3600},
+				{Name: "test.corvid.algo.", RrData: []string{"72.60.148.52"}, Type: "a", Ttl: 3600},
+				{Name: "grafana.corvid.algo.", RrData: []string{"72.60.148.52"}, Type: "a", Ttl: 3600},
+				{Name: "jenkins.corvid.algo.", RrData: []string{"72.60.148.52"}, Type: "a", Ttl: 3600},
 			},
 		},
 	}
