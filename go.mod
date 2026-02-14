@@ -3,12 +3,14 @@ module github.com/TxnLab/nfd-coredns
 go 1.25.0
 
 require (
+	filippo.io/edwards25519 v1.1.0
 	github.com/algorand/go-algorand-sdk/v2 v2.11.1
 	github.com/coredns/caddy v1.1.4
 	github.com/coredns/coredns v1.14.1
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/mailgun/holster/v4 v4.21.0
 	github.com/miekg/dns v1.1.72
+	github.com/mr-tron/base58 v1.2.0
 	github.com/stretchr/testify v1.11.1
 )
 

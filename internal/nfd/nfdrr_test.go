@@ -362,3 +362,7 @@ type mockNfdFetcher struct {
 func (m *mockNfdFetcher) FetchNfdDnsVals(ctx context.Context, names []string) (map[string]Properties, error) {
 	return m.fetchFunc(ctx, clog.P{}, names)
 }
+
+func (m *mockNfdFetcher) FetchNfdDidVals(_ context.Context, _ string) (Properties, uint64, error) {
+	return Properties{}, 0, nil
+}

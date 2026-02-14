@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -41,6 +40,7 @@ var (
 
 type NfdFetcher interface {
 	FetchNfdDnsVals(ctx context.Context, names []string) (map[string]Properties, error)
+	FetchNfdDidVals(ctx context.Context, name string) (Properties, uint64, error)
 }
 type nfdFetcher struct {
 	Client     *algod.Client
@@ -50,6 +50,11 @@ type nfdFetcher struct {
 
 func newNfdFetcher(client *algod.Client, registryID uint64, algoXyzIp string) NfdFetcher {
 	return &nfdFetcher{Client: client, RegistryId: registryID, AlgoXyzIp: algoXyzIp}
+}
+
+// NewNfdFetcher creates a new NfdFetcher for use outside the DNS plugin (e.g., DID resolver).
+func NewNfdFetcher(client *algod.Client, registryID uint64) NfdFetcher {
+	return &nfdFetcher{Client: client, RegistryId: registryID}
 }
 
 type Properties struct {
@@ -102,6 +107,26 @@ func (n *nfdFetcher) FetchNfdDnsVals(ctx context.Context, names []string) (map[s
 		// some were found
 	}
 	return retMap, nil
+}
+
+// FetchNfdDidVals retrieves properties needed for DID document construction for a single NFD name.
+// It fetches internal properties (owner, expiration, name), verified addresses (caAlgo, blueskydid),
+// and user-defined DID properties (service, keys, controller, alsoKnownAs, deactivated).
+// Returns the Properties, the NFD App ID, and any error.
+func (n *nfdFetcher) FetchNfdDidVals(ctx context.Context, name string) (Properties, uint64, error) {
+	nfdId, err := n.FindNFDAppIDByName(ctx, name)
+	if err != nil {
+		return Properties{}, 0, err
+	}
+	props, err := n.FetchNFD(ctx, nfdId, false, []string{
+		"u.service", "u.keys", "u.controller", "u.alsoKnownAs", "u.deactivated",
+		"v.blueskydid",
+		"v.caAlgo*", // v.caAlgo.N.as boxes contain packed 32-byte addresses
+	})
+	if err != nil {
+		return Properties{}, 0, err
+	}
+	return props, nfdId, nil
 }
 
 func (n *nfdFetcher) FetchNFD(ctx context.Context, nfdId uint64, internalOnly bool, propertyList []string) (Properties, error) {
@@ -194,7 +219,7 @@ func (n *nfdFetcher) GetApplicationBoxes(ctx context.Context, appID uint64, prop
 	// Now fetch the data of all the boxes in parallel
 	for _, box := range boxes.Boxes {
 		if propertyList != nil {
-			if !slices.Contains(propertyList, string(box.Name)) {
+			if !matchesPropertyFilter(string(box.Name), propertyList) {
 				continue
 			}
 		}
@@ -215,6 +240,21 @@ func (n *nfdFetcher) GetApplicationBoxes(ctx context.Context, appID uint64, prop
 		return nil, fmt.Errorf("error retrieving box data: %w", errs[0])
 	}
 	return boxData, nil
+}
+
+// matchesPropertyFilter checks if a box name matches any entry in the property list.
+// Entries ending with "*" are treated as prefix matches.
+func matchesPropertyFilter(boxName string, propertyList []string) bool {
+	for _, prop := range propertyList {
+		if strings.HasSuffix(prop, "*") {
+			if strings.HasPrefix(boxName, strings.TrimSuffix(prop, "*")) {
+				return true
+			}
+		} else if prop == boxName {
+			return true
+		}
+	}
+	return false
 }
 
 func GetRegistryBoxNameForNFD(nfdName string) []byte {

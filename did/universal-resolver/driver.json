@@ -1,0 +1,9 @@
+{
+  "method": "nfd",
+  "url": "http://driver-did-nfd:8080/1.0/identifiers/",
+  "testIdentifiers": [
+    "did:nfd:nfdomains.algo",
+    "did:nfd:algorand.algo"
+  ],
+  "pattern": "^did:nfd:([a-z0-9]{1,27}\\.){1,2}algo$"
+}
