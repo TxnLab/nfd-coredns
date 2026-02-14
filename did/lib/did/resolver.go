@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025. TxnLab Inc.
+ * Copyright (c) 2025-2026. TxnLab Inc.
  * All Rights reserved.
  */
 
@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -234,6 +235,52 @@ func (r *nfdDIDResolver) buildResolutionResult(
 		}
 	}
 
+	// Determine #web LinkedDomains URL using strict priority:
+	// v.domain (verified) > u.website > u.url > u.service #web entry
+	var webURL string
+	switch {
+	case props.Verified["domain"] != "":
+		webURL = props.Verified["domain"]
+	case props.UserDefined["website"] != "":
+		webURL = props.UserDefined["website"]
+	case props.UserDefined["url"] != "":
+		webURL = props.UserDefined["url"]
+	}
+	if webURL != "" {
+		webSvc := Service{
+			ID:              didID + "#web",
+			Type:            "LinkedDomains",
+			ServiceEndpoint: webURL,
+		}
+		found := false
+		for i := range doc.Service {
+			if doc.Service[i].ID == didID+"#web" {
+				doc.Service[i] = webSvc
+				found = true
+				break
+			}
+		}
+		if !found {
+			doc.Service = append([]Service{webSvc}, doc.Service...)
+		}
+	}
+
+	// Auto-generate NFDProfile and SocialMedia services (dedup against existing service IDs)
+	existingIDs := make(map[string]bool, len(doc.Service))
+	for _, svc := range doc.Service {
+		existingIDs[svc.ID] = true
+	}
+	if !existingIDs[didID+"#profile"] {
+		if profileSvc := buildProfileService(didID, props); profileSvc != nil {
+			doc.Service = append(doc.Service, *profileSvc)
+		}
+	}
+	for _, svc := range buildSocialMediaServices(didID, props) {
+		if !existingIDs[svc.ID] {
+			doc.Service = append(doc.Service, svc)
+		}
+	}
+
 	// Build alsoKnownAs
 	var alsoKnownAs []string
 	if bskyDID := props.Verified["blueskydid"]; bskyDID != "" {
@@ -254,6 +301,16 @@ func (r *nfdDIDResolver) buildResolutionResult(
 		Deactivated: false,
 		NFDAppID:    nfdAppID,
 	}
+	if ts := props.Internal["timeCreated"]; ts != "" {
+		if secs, err := strconv.ParseInt(ts, 10, 64); err == nil {
+			docMeta.Created = time.Unix(secs, 0).UTC().Format(time.RFC3339)
+		}
+	}
+	if ts := props.Internal["timeChanged"]; ts != "" {
+		if secs, err := strconv.ParseInt(ts, 10, 64); err == nil {
+			docMeta.Updated = time.Unix(secs, 0).UTC().Format(time.RFC3339)
+		}
+	}
 
 	resMeta := ResolutionMetadata{
 		ContentType: contentType,
@@ -266,6 +323,86 @@ func (r *nfdDIDResolver) buildResolutionResult(
 		ResolutionMetadata: resMeta,
 		DocumentMetadata:   docMeta,
 	}, nil
+}
+
+// socialPlatform defines a social media platform for auto-generating SocialMedia services.
+type socialPlatform struct {
+	key      string // NFD property key suffix (e.g., "twitter")
+	fragment string // DID service ID fragment (e.g., "#twitter")
+	urlFmt   string // URL format string with %s placeholder for the handle
+}
+
+var socialPlatforms = []socialPlatform{
+	{"twitter", "#twitter", "https://x.com/%s"},
+	{"discord", "#discord", "https://discord.com/users/%s"},
+	{"telegram", "#telegram", "https://t.me/%s"},
+	{"github", "#github", "https://github.com/%s"},
+	{"linkedin", "#linkedin", "https://linkedin.com/in/%s"},
+	{"blueskydid", "#bluesky", "https://bsky.app/profile/%s"},
+}
+
+// buildProfileService builds an NFDProfile service from profile properties.
+// Returns nil if no profile data is present.
+func buildProfileService(didID string, props nfd.Properties) *Service {
+	// avatar: v.avatar → u.avatar
+	avatar := props.Verified["avatar"]
+	if avatar == "" {
+		avatar = props.UserDefined["avatar"]
+	}
+	// banner: v.banner → u.banner
+	banner := props.Verified["banner"]
+	if banner == "" {
+		banner = props.UserDefined["banner"]
+	}
+	name := props.UserDefined["name"]
+	bio := props.UserDefined["bio"]
+
+	if name == "" && bio == "" && avatar == "" && banner == "" {
+		return nil
+	}
+
+	return &Service{
+		ID:   didID + "#profile",
+		Type: "NFDProfile",
+		ServiceEndpoint: NFDProfileEndpoint{
+			Name:   name,
+			Bio:    bio,
+			Avatar: avatar,
+			Banner: banner,
+		},
+	}
+}
+
+// buildSocialMediaServices builds SocialMedia services from social media handle properties.
+// For each platform, verified (v.) properties take priority over user-defined (u.) properties.
+func buildSocialMediaServices(didID string, props nfd.Properties) []Service {
+	var services []Service
+	for _, p := range socialPlatforms {
+		handle := props.Verified[p.key]
+		if handle == "" {
+			handle = props.UserDefined[p.key]
+		}
+		if handle == "" {
+			continue
+		}
+
+		endpoint := ""
+		// If the handle already contains the URL prefix (e.g. "https://x.com/"), use it as is.
+		// Otherwise, format it using the urlFmt.
+		prefix := strings.Split(p.urlFmt, "%s")[0]
+		if strings.HasPrefix(handle, prefix) {
+			endpoint = handle
+		} else {
+			endpoint = fmt.Sprintf(p.urlFmt, handle)
+		}
+
+		services = append(services, Service{
+			ID:              didID + p.fragment,
+			Type:            "SocialMedia",
+			ServiceEndpoint: endpoint,
+		})
+	}
+	return services
 }
 
 // ParseDID validates and extracts the NFD name from a did:nfd string (exported for testing).

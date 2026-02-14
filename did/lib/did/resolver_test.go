@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025. TxnLab Inc.
+ * Copyright (c) 2025-2026. TxnLab Inc.
  * All Rights reserved.
  */
 
@@ -125,6 +125,8 @@ func TestParseDID(t *testing.T) {
 func TestResolve_BasicDocument(t *testing.T) {
 	ownerAddr := "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAY5HFKQ"
 	futureExpiry := strconv.FormatUint(uint64(time.Now().Add(365*24*time.Hour).Unix()), 10)
+	created := time.Date(2024, 3, 15, 12, 0, 0, 0, time.UTC)
+	updated := time.Date(2025, 1, 10, 8, 30, 0, 0, time.UTC)
 
 	mock := &mockNfdFetcher{
 		didResult: nfd.Properties{
@@ -132,6 +134,8 @@ func TestResolve_BasicDocument(t *testing.T) {
 				"name":           "patrick.algo",
 				"owner":          ownerAddr,
 				"expirationTime": futureExpiry,
+				"timeCreated":    strconv.FormatInt(created.Unix(), 10),
+				"timeChanged":    strconv.FormatInt(updated.Unix(), 10),
 			},
 			UserDefined: map[string]string{},
 			Verified:    map[string]string{},
@@ -168,6 +172,33 @@ func TestResolve_BasicDocument(t *testing.T) {
 	assert.False(t, result.DocumentMetadata.Deactivated)
 	assert.Equal(t, uint64(12345), result.DocumentMetadata.NFDAppID)
 	assert.NotEmpty(t, result.ResolutionMetadata.ContentType)
+	assert.Equal(t, "2024-03-15T12:00:00Z", result.DocumentMetadata.Created)
+	assert.Equal(t, "2025-01-10T08:30:00Z", result.DocumentMetadata.Updated)
+}
+
+func TestResolve_MissingTimestamps(t *testing.T) {
+	ownerAddr := "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAY5HFKQ"
+	futureExpiry := strconv.FormatUint(uint64(time.Now().Add(365*24*time.Hour).Unix()), 10)
+
+	mock := &mockNfdFetcher{
+		didResult: nfd.Properties{
+			Internal: map[string]string{
+				"name":           "notimestamps.algo",
+				"owner":          ownerAddr,
+				"expirationTime": futureExpiry,
+			},
+			UserDefined: map[string]string{},
+			Verified:    map[string]string{},
+		},
+		didAppID: 12345,
+	}
+
+	resolver := NewNfdDIDResolverWithFetcher(mock, 5*time.Minute)
+	result, err := resolver.Resolve(context.Background(), "did:nfd:notimestamps.algo")
+	require.NoError(t, err)
+
+	assert.Empty(t, result.DocumentMetadata.Created)
+	assert.Empty(t, result.DocumentMetadata.Updated)
 }
 
 func TestResolve_WithVerifiedAddresses(t *testing.T) {
@@ -364,6 +395,101 @@ func TestResolve_WithServiceEndpoints(t *testing.T) {
 	assert.Equal(t, "https://patrick.algo.xyz", doc.Service[0].ServiceEndpoint)
 }
 
+func TestResolve_WebLinkedDomains_Priority(t *testing.T) {
+	futureExpiry := strconv.FormatUint(uint64(time.Now().Add(365*24*time.Hour).Unix()), 10)
+	baseInternal := map[string]string{
+		"name":           "patrick.algo",
+		"owner":          "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAY5HFKQ",
+		"expirationTime": futureExpiry,
+	}
+
+	services := []Service{
+		{ID: "#web", Type: "LinkedDomains", ServiceEndpoint: "https://from-service.com"},
+		{ID: "#messaging", Type: "DIDCommMessaging", ServiceEndpoint: "https://msg.example.com"},
+	}
+	servicesJSON, _ := json.Marshal(services)
+
+	tests := []struct {
+		name        string
+		verified    map[string]string
+		userDefined map[string]string
+		wantURL     string
+		wantCount   int
+	}{
+		{
+			name:        "v.domain creates #web",
+			verified:    map[string]string{"domain": "https://verified.com"},
+			userDefined: map[string]string{},
+			wantURL:     "https://verified.com",
+			wantCount:   1,
+		},
+		{
+			name:        "u.website creates #web when v.domain absent",
+			verified:    map[string]string{},
+			userDefined: map[string]string{"website": "https://mysite.com"},
+			wantURL:     "https://mysite.com",
+			wantCount:   1,
+		},
+		{
+			name:        "u.url creates #web when v.domain and u.website absent",
+			verified:    map[string]string{},
+			userDefined: map[string]string{"url": "https://myurl.com"},
+			wantURL:     "https://myurl.com",
+			wantCount:   1,
+		},
+		{
+			name:        "v.domain beats u.website and u.url",
+			verified:    map[string]string{"domain": "https://verified.com"},
+			userDefined: map[string]string{"website": "https://mysite.com", "url": "https://myurl.com"},
+			wantURL:     "https://verified.com",
+			wantCount:   1,
+		},
+		{
+			name:        "u.website beats u.url",
+			verified:    map[string]string{},
+			userDefined: map[string]string{"website": "https://mysite.com", "url": "https://myurl.com"},
+			wantURL:     "https://mysite.com",
+			wantCount:   1,
+		},
+		{
+			name:        "v.domain overrides u.service #web, preserves other services",
+			verified:    map[string]string{"domain": "https://verified.com"},
+			userDefined: map[string]string{"service": string(servicesJSON)},
+			wantURL:     "https://verified.com",
+			wantCount:   2,
+		},
+		{
+			name:        "no sources — u.service #web used as-is",
+			verified:    map[string]string{},
+			userDefined: map[string]string{"service": string(servicesJSON)},
+			wantURL:     "https://from-service.com",
+			wantCount:   2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := &mockNfdFetcher{
+				didResult: nfd.Properties{
+					Internal:    baseInternal,
+					UserDefined: tt.userDefined,
+					Verified:    tt.verified,
+				},
+				didAppID: 12345,
+			}
+			resolver := NewNfdDIDResolverWithFetcher(mock, 5*time.Minute)
+			result, err := resolver.Resolve(context.Background(), "did:nfd:patrick.algo")
+			require.NoError(t, err)
+
+			doc := result.DIDDocument
+			require.Len(t, doc.Service, tt.wantCount)
+			assert.Equal(t, "did:nfd:patrick.algo#web", doc.Service[0].ID)
+			assert.Equal(t, "LinkedDomains", doc.Service[0].Type)
+			assert.Equal(t, tt.wantURL, doc.Service[0].ServiceEndpoint)
+		})
+	}
+}
+
 func TestResolve_WithAlsoKnownAs(t *testing.T) {
 	futureExpiry := strconv.FormatUint(uint64(time.Now().Add(365*24*time.Hour).Unix()), 10)
 
@@ -395,6 +521,18 @@ func TestResolve_WithAlsoKnownAs(t *testing.T) {
 	require.Len(t, doc.AlsoKnownAs, 2)
 	assert.Equal(t, "did:plc:abc123xyz", doc.AlsoKnownAs[0]) // Bluesky first
 	assert.Equal(t, "did:web:example.com", doc.AlsoKnownAs[1])
+
+	// v.blueskydid should also generate a #bluesky SocialMedia service
+	var bskySvc *Service
+	for i := range doc.Service {
+		if doc.Service[i].ID == "did:nfd:patrick.algo#bluesky" {
+			bskySvc = &doc.Service[i]
+			break
+		}
+	}
+	require.NotNil(t, bskySvc, "expected #bluesky service")
+	assert.Equal(t, "SocialMedia", bskySvc.Type)
+	assert.Equal(t, "https://bsky.app/profile/did:plc:abc123xyz", bskySvc.ServiceEndpoint)
 }
 
 func TestResolve_WithControllerOverride(t *testing.T) {
@@ -558,6 +696,317 @@ func TestResolve_BlockchainAccountId(t *testing.T) {
 	assert.Empty(t, doc.KeyAgreement[0].BlockchainAccountId)
 }
 
+func TestResolve_WithNFDProfile(t *testing.T) {
+	futureExpiry := strconv.FormatUint(uint64(time.Now().Add(365*24*time.Hour).Unix()), 10)
+
+	mock := &mockNfdFetcher{
+		didResult: nfd.Properties{
+			Internal: map[string]string{
+				"name":           "patrick.algo",
+				"owner":          "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAY5HFKQ",
+				"expirationTime": futureExpiry,
+			},
+			UserDefined: map[string]string{
+				"name":   "Patrick",
+				"bio":    "Building on Algorand",
+				"avatar": "https://example.com/avatar.png",
+				"banner": "https://example.com/banner.png",
+			},
+			Verified: map[string]string{},
+		},
+		didAppID: 12345,
+	}
+
+	resolver := NewNfdDIDResolverWithFetcher(mock, 5*time.Minute)
+	result, err := resolver.Resolve(context.Background(), "did:nfd:patrick.algo")
+	require.NoError(t, err)
+
+	doc := result.DIDDocument
+	// Find the #profile service
+	var profileSvc *Service
+	for i := range doc.Service {
+		if doc.Service[i].ID == "did:nfd:patrick.algo#profile" {
+			profileSvc = &doc.Service[i]
+			break
+		}
+	}
+	require.NotNil(t, profileSvc, "expected #profile service")
+	assert.Equal(t, "NFDProfile", profileSvc.Type)
+
+	endpoint, ok := profileSvc.ServiceEndpoint.(NFDProfileEndpoint)
+	require.True(t, ok, "expected NFDProfileEndpoint type")
+	assert.Equal(t, "Patrick", endpoint.Name)
+	assert.Equal(t, "Building on Algorand", endpoint.Bio)
+	assert.Equal(t, "https://example.com/avatar.png", endpoint.Avatar)
+	assert.Equal(t, "https://example.com/banner.png", endpoint.Banner)
+}
+
+func TestResolve_WithNFDProfile_VerifiedPriority(t *testing.T) {
+	futureExpiry := strconv.FormatUint(uint64(time.Now().Add(365*24*time.Hour).Unix()), 10)
+
+	mock := &mockNfdFetcher{
+		didResult: nfd.Properties{
+			Internal: map[string]string{
+				"name":           "patrick.algo",
+				"owner":          "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAY5HFKQ",
+				"expirationTime": futureExpiry,
+			},
+			UserDefined: map[string]string{
+				"avatar": "https://user.com/avatar.png",
+				"banner": "https://user.com/banner.png",
+			},
+			Verified: map[string]string{
+				"avatar": "https://verified.com/avatar.png",
+				"banner": "https://verified.com/banner.png",
+			},
+		},
+		didAppID: 12345,
+	}
+
+	resolver := NewNfdDIDResolverWithFetcher(mock, 5*time.Minute)
+	result, err := resolver.Resolve(context.Background(), "did:nfd:patrick.algo")
+	require.NoError(t, err)
+
+	var profileSvc *Service
+	for i := range result.DIDDocument.Service {
+		if result.DIDDocument.Service[i].ID == "did:nfd:patrick.algo#profile" {
+			profileSvc = &result.DIDDocument.Service[i]
+			break
+		}
+	}
+	require.NotNil(t, profileSvc)
+
+	endpoint, ok := profileSvc.ServiceEndpoint.(NFDProfileEndpoint)
+	require.True(t, ok)
+	assert.Equal(t, "https://verified.com/avatar.png", endpoint.Avatar)
+	assert.Equal(t, "https://verified.com/banner.png", endpoint.Banner)
+}
+
+func TestResolve_WithNFDProfile_PartialData(t *testing.T) {
+	futureExpiry := strconv.FormatUint(uint64(time.Now().Add(365*24*time.Hour).Unix()), 10)
+
+	mock := &mockNfdFetcher{
+		didResult: nfd.Properties{
+			Internal: map[string]string{
+				"name":           "patrick.algo",
+				"owner":          "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAY5HFKQ",
+				"expirationTime": futureExpiry,
+			},
+			UserDefined: map[string]string{
+				"bio": "Just a bio",
+			},
+			Verified: map[string]string{},
+		},
+		didAppID: 12345,
+	}
+
+	resolver := NewNfdDIDResolverWithFetcher(mock, 5*time.Minute)
+	result, err := resolver.Resolve(context.Background(), "did:nfd:patrick.algo")
+	require.NoError(t, err)
+
+	var profileSvc *Service
+	for i := range result.DIDDocument.Service {
+		if result.DIDDocument.Service[i].ID == "did:nfd:patrick.algo#profile" {
+			profileSvc = &result.DIDDocument.Service[i]
+			break
+		}
+	}
+	require.NotNil(t, profileSvc, "expected #profile service even with partial data")
+
+	endpoint, ok := profileSvc.ServiceEndpoint.(NFDProfileEndpoint)
+	require.True(t, ok)
+	assert.Equal(t, "Just a bio", endpoint.Bio)
+	assert.Empty(t, endpoint.Name)
+	assert.Empty(t, endpoint.Avatar)
+	assert.Empty(t, endpoint.Banner)
+}
+
+func TestResolve_WithNFDProfile_NoData(t *testing.T) {
+	futureExpiry := strconv.FormatUint(uint64(time.Now().Add(365*24*time.Hour).Unix()), 10)
+
+	mock := &mockNfdFetcher{
+		didResult: nfd.Properties{
+			Internal: map[string]string{
+				"name":           "patrick.algo",
+				"owner":          "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAY5HFKQ",
+				"expirationTime": futureExpiry,
+			},
+			UserDefined: map[string]string{},
+			Verified:    map[string]string{},
+		},
+		didAppID: 12345,
+	}
+
+	resolver := NewNfdDIDResolverWithFetcher(mock, 5*time.Minute)
+	result, err := resolver.Resolve(context.Background(), "did:nfd:patrick.algo")
+	require.NoError(t, err)
+
+	for _, svc := range result.DIDDocument.Service {
+		assert.NotEqual(t, "did:nfd:patrick.algo#profile", svc.ID, "should not create #profile service with no data")
+	}
+}
+
+func TestResolve_WithSocialMedia(t *testing.T) {
+	futureExpiry := strconv.FormatUint(uint64(time.Now().Add(365*24*time.Hour).Unix()), 10)
+
+	mock := &mockNfdFetcher{
+		didResult: nfd.Properties{
+			Internal: map[string]string{
+				"name":           "patrick.algo",
+				"owner":          "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAY5HFKQ",
+				"expirationTime": futureExpiry,
+			},
+			UserDefined: map[string]string{
+				"twitter": "patrickdev",
+				"github":  "patrickdev",
+			},
+			Verified: map[string]string{},
+		},
+		didAppID: 12345,
+	}
+
+	resolver := NewNfdDIDResolverWithFetcher(mock, 5*time.Minute)
+	result, err := resolver.Resolve(context.Background(), "did:nfd:patrick.algo")
+	require.NoError(t, err)
+
+	svcMap := make(map[string]Service)
+	for _, svc := range result.DIDDocument.Service {
+		svcMap[svc.ID] = svc
+	}
+
+	twitterSvc, ok := svcMap["did:nfd:patrick.algo#twitter"]
+	require.True(t, ok, "expected #twitter service")
+	assert.Equal(t, "SocialMedia", twitterSvc.Type)
+	assert.Equal(t, "https://x.com/patrickdev", twitterSvc.ServiceEndpoint)
+
+	githubSvc, ok := svcMap["did:nfd:patrick.algo#github"]
+	require.True(t, ok, "expected #github service")
+	assert.Equal(t, "SocialMedia", githubSvc.Type)
+	assert.Equal(t, "https://github.com/patrickdev", githubSvc.ServiceEndpoint)
+}
+
+func TestResolve_WithSocialMedia_VerifiedPriority(t *testing.T) {
+	futureExpiry := strconv.FormatUint(uint64(time.Now().Add(365*24*time.Hour).Unix()), 10)
+
+	mock := &mockNfdFetcher{
+		didResult: nfd.Properties{
+			Internal: map[string]string{
+				"name":           "patrick.algo",
+				"owner":          "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAY5HFKQ",
+				"expirationTime": futureExpiry,
+			},
+			UserDefined: map[string]string{
+				"twitter": "user_handle",
+			},
+			Verified: map[string]string{
+				"twitter": "verified_handle",
+			},
+		},
+		didAppID: 12345,
+	}
+
+	resolver := NewNfdDIDResolverWithFetcher(mock, 5*time.Minute)
+	result, err := resolver.Resolve(context.Background(), "did:nfd:patrick.algo")
+	require.NoError(t, err)
+
+	var twitterSvc *Service
+	for i := range result.DIDDocument.Service {
+		if result.DIDDocument.Service[i].ID == "did:nfd:patrick.algo#twitter" {
+			twitterSvc = &result.DIDDocument.Service[i]
+			break
+		}
+	}
+	require.NotNil(t, twitterSvc)
+	assert.Equal(t, "https://x.com/verified_handle", twitterSvc.ServiceEndpoint)
+}
+
+func TestResolve_WithSocialMedia_Dedup(t *testing.T) {
+	futureExpiry := strconv.FormatUint(uint64(time.Now().Add(365*24*time.Hour).Unix()), 10)
+
+	// User defines a custom #twitter service in u.service
+	services := []Service{
+		{ID: "#twitter", Type: "SocialMedia", ServiceEndpoint: "https://x.com/custom_handle"},
+	}
+	servicesJSON, _ := json.Marshal(services)
+
+	mock := &mockNfdFetcher{
+		didResult: nfd.Properties{
+			Internal: map[string]string{
+				"name":           "patrick.algo",
+				"owner":          "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAY5HFKQ",
+				"expirationTime": futureExpiry,
+			},
+			UserDefined: map[string]string{
+				"service": string(servicesJSON),
+				"twitter": "auto_handle",
+			},
+			Verified: map[string]string{},
+		},
+		didAppID: 12345,
+	}
+
+	resolver := NewNfdDIDResolverWithFetcher(mock, 5*time.Minute)
+	result, err := resolver.Resolve(context.Background(), "did:nfd:patrick.algo")
+	require.NoError(t, err)
+
+	// Count how many #twitter services exist — should be exactly 1 (the user-defined one)
+	twitterCount := 0
+	for _, svc := range result.DIDDocument.Service {
+		if svc.ID == "did:nfd:patrick.algo#twitter" {
+			twitterCount++
+			assert.Equal(t, "https://x.com/custom_handle", svc.ServiceEndpoint, "user-defined #twitter should be preserved")
+		}
+	}
+	assert.Equal(t, 1, twitterCount, "should have exactly one #twitter service")
+}
+
+func TestResolve_ServiceOrdering(t *testing.T) {
+	futureExpiry := strconv.FormatUint(uint64(time.Now().Add(365*24*time.Hour).Unix()), 10)
+
+	services := []Service{
+		{ID: "#messaging", Type: "DIDCommMessaging", ServiceEndpoint: "https://msg.example.com"},
+	}
+	servicesJSON, _ := json.Marshal(services)
+
+	mock := &mockNfdFetcher{
+		didResult: nfd.Properties{
+			Internal: map[string]string{
+				"name":           "patrick.algo",
+				"owner":          "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAY5HFKQ",
+				"expirationTime": futureExpiry,
+			},
+			UserDefined: map[string]string{
+				"service": string(servicesJSON),
+				"website": "https://patrick.dev",
+				"bio":     "Hello",
+				"twitter": "patrickdev",
+				"github":  "patrickdev",
+			},
+			Verified: map[string]string{},
+		},
+		didAppID: 12345,
+	}
+
+	resolver := NewNfdDIDResolverWithFetcher(mock, 5*time.Minute)
+	result, err := resolver.Resolve(context.Background(), "did:nfd:patrick.algo")
+	require.NoError(t, err)
+
+	doc := result.DIDDocument
+	require.GreaterOrEqual(t, len(doc.Service), 5, "expected at least 5 services")
+
+	// Verify ordering: #web → user services → #profile → social media
+	var ids []string
+	for _, svc := range doc.Service {
+		ids = append(ids, svc.ID)
+	}
+
+	assert.Equal(t, "did:nfd:patrick.algo#web", ids[0], "first should be #web")
+	assert.Equal(t, "did:nfd:patrick.algo#messaging", ids[1], "second should be user-defined service")
+	assert.Equal(t, "did:nfd:patrick.algo#profile", ids[2], "third should be #profile")
+	assert.Equal(t, "did:nfd:patrick.algo#twitter", ids[3], "fourth should be #twitter")
+	assert.Equal(t, "did:nfd:patrick.algo#github", ids[4], "fifth should be #github")
+}
+
 func TestResolve_FullDocument(t *testing.T) {
 	futureExpiry := strconv.FormatUint(uint64(time.Now().Add(365*24*time.Hour).Unix()), 10)
 	ownerAddr := "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAY5HFKQ"
@@ -600,7 +1049,7 @@ func TestResolve_FullDocument(t *testing.T) {
 	assert.Len(t, doc.Authentication, 1)
 	assert.Len(t, doc.AssertionMethod, 1)
 	assert.Len(t, doc.KeyAgreement, 1)
-	assert.Len(t, doc.Service, 1)
+	assert.Len(t, doc.Service, 2) // #web + #bluesky
 	assert.Len(t, doc.AlsoKnownAs, 1)
 	assert.Equal(t, "did:plc:abc123", doc.AlsoKnownAs[0])
 

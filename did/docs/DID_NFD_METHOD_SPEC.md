@@ -47,7 +47,7 @@
 
 ## 1. Introduction
 
-The `did:nfd` method is a Decentralized Identifier (DID) method that leverages [Non-Fungible Domains (NFDs)](https://app.nf.domains) on the [Algorand](https://www.algorand.com) blockchain as the verifiable data registry. NFDs are blockchain-based naming identities that map human-readable names (e.g., `patrick.algo`) to Algorand accounts and associated metadata. The `did:nfd` method bridges this on-chain naming system to the W3C Decentralized Identifiers ecosystem, enabling NFD owners to participate in decentralized identity protocols without deploying additional infrastructure.
+The `did:nfd` method is a Decentralized Identifier (DID) method that leverages [Non-Fungible Domains (NFDs)](https://app.nf.domains) on the [Algorand](https://www.algorand.com) blockchain as the verifiable data registry. NFDs are blockchain-based naming identities that map human-readable names (e.g., `nfdomains.algo`) to Algorand accounts and associated metadata. The `did:nfd` method bridges this on-chain naming system to the W3C Decentralized Identifiers ecosystem, enabling NFD owners to participate in decentralized identity protocols without deploying additional infrastructure.
 
 Each NFD is an Algorand Application (smart contract) whose global state and box storage contain the identity properties. The `did:nfd` resolver queries an Algorand algod node to read these on-chain properties and dynamically constructs a conformant DID Document. No off-chain registry, separate anchoring transaction, or dedicated DID contract is required -- the NFD smart contract itself serves as both the naming system and the verifiable data registry.
 
@@ -78,17 +78,17 @@ The key conformance points are:
 
 ## 3. Terminology
 
-| Term | Definition |
-|------|-----------|
-| **NFD** | Non-Fungible Domain. A blockchain-based naming identity on Algorand, represented as an Algorand Application (smart contract). |
-| **Root NFD** | A top-level NFD name matching the pattern `<name>.algo` (e.g., `patrick.algo`). |
-| **Segment NFD** | A subdomain of a root NFD (e.g., `mail.patrick.algo`). Each segment is an independent NFD with its own Application ID and properties, and constitutes its own DID. |
-| **algod** | The Algorand node daemon that serves the blockchain REST API used to query application state. |
-| **NFD Registry** | The Algorand Application that serves as the central registry for all NFDs. Its Application ID on mainnet is `760937186`. |
-| **NFD Application** | The individual Algorand Application (smart contract) representing a single NFD. Each NFD has a unique Application ID. |
-| **Global State** | Key-value storage within an Algorand Application's global state, used for internal (`i.*`) properties. |
-| **Box Storage** | Algorand Application box storage, used for user-defined (`u.*`) and verified (`v.*`) properties. |
-| **v.caAlgo** | Verified Algorand addresses associated with an NFD, stored as packed 32-byte public keys in box storage (`v.caAlgo.N.as` boxes). |
+| Term | Definition                                                                                                                                                         |
+|------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **NFD** | Non-Fungible Domain. A blockchain-based naming identity on Algorand, represented as an Algorand Application (smart contract).                                      |
+| **Root NFD** | A top-level NFD name matching the pattern `<name>.algo` (e.g., `nfdomains.algo`).                                                                                    |
+| **Segment NFD** | A subdomain of a root NFD (e.g., `mail.nfdomains.algo`). Each segment is an independent NFD with its own Application ID and properties, and constitutes its own DID. |
+| **algod** | The Algorand node daemon that serves the blockchain REST API used to query application state.                                                                      |
+| **NFD Registry** | The Algorand Application that serves as the central registry for all NFDs. Its Application ID on mainnet is `760937186`.                                           |
+| **NFD Application** | The individual Algorand Application (smart contract) representing a single NFD. Each NFD has a unique Application ID.                                              |
+| **Global State** | Key-value storage within an Algorand Application's global state, used for internal (`i.*`) properties.                                                             |
+| **Box Storage** | Algorand Application box storage, used for user-defined (`u.*`) and verified (`v.*`) properties.                                                                   |
+| **v.caAlgo** | Verified Algorand addresses associated with an NFD, stored as packed 32-byte public keys in box storage (`v.caAlgo.0.as` as raw 'set' of PKs).                |
 
 ---
 
@@ -136,14 +136,14 @@ As a regular expression:
 
 | DID | Valid | Notes |
 |-----|-------|-------|
-| `did:nfd:patrick.algo` | Yes | Root NFD |
+| `did:nfd:nfdomains.algo` | Yes | Root NFD |
 | `did:nfd:abc123.algo` | Yes | Alphanumeric label |
 | `did:nfd:a.algo` | Yes | Minimum label length (1 character) |
-| `did:nfd:mail.patrick.algo` | Yes | Single-segment NFD |
+| `did:nfd:mail.nfdomains.algo` | Yes | Single-segment NFD |
 | `did:nfd:a.b.c.algo` | **No** | Multi-level segment -- not valid |
-| `did:nfd:Patrick.algo` | **No** | Uppercase characters not permitted |
+| `did:nfd:Nfdomains.algo` | **No** | Uppercase characters not permitted |
 | `did:nfd:my-name.algo` | **No** | Hyphens not permitted |
-| `did:nfd:patrick.eth` | **No** | Must end with `.algo` |
+| `did:nfd:nfdomains.eth` | **No** | Must end with `.algo` |
 | `did:nfd:patrick` | **No** | Missing `.algo` suffix |
 
 ---
@@ -162,18 +162,22 @@ Fragments identify specific resources within the DID Document, such as verificat
 
 | DID URL | Resolves To |
 |---------|-------------|
-| `did:nfd:patrick.algo#owner` | The primary verification method derived from the NFD owner's Algorand address |
-| `did:nfd:patrick.algo#x25519-owner` | The X25519 key agreement key derived from the owner's Ed25519 public key |
-| `did:nfd:patrick.algo#algo-0` | The first verified Algorand address from `v.caAlgo` (excluding the owner) |
-| `did:nfd:patrick.algo#key-1` | An additional verification method declared via `u.keys` |
-| `did:nfd:patrick.algo#web` | A service endpoint declared via `u.service` |
+| `did:nfd:nfdomains.algo#owner` | The primary verification method derived from the NFD owner's Algorand address |
+| `did:nfd:nfdomains.algo#x25519-owner` | The X25519 key agreement key derived from the owner's Ed25519 public key |
+| `did:nfd:nfdomains.algo#algo-0` | The first verified Algorand address from `v.caAlgo` (excluding the owner) |
+| `did:nfd:nfdomains.algo#key-1` | An additional verification method declared via `u.keys` |
+| `did:nfd:nfdomains.algo#web` | The LinkedDomains service endpoint (from `v.domain`, `u.website`, `u.url`, or `u.service`) |
+| `did:nfd:nfdomains.algo#profile` | The auto-generated NFDProfile service (from `u.name`, `u.bio`, `u.avatar`, `u.banner`) |
+| `did:nfd:nfdomains.algo#twitter` | Auto-generated SocialMedia service for Twitter/X |
+| `did:nfd:nfdomains.algo#github` | Auto-generated SocialMedia service for GitHub |
+| `did:nfd:nfdomains.algo#bluesky` | Auto-generated SocialMedia service for Bluesky (from `v.blueskydid`) |
 
 ### Query Parameters
 
 | Parameter | Description | Example |
 |-----------|-------------|---------|
-| `service` | Dereference to a named service endpoint URL. Returns the `serviceEndpoint` value of the matching service. | `did:nfd:patrick.algo?service=web` |
-| `versionTime` | Request the DID Document as it existed at a specific point in time (ISO 8601). Requires historical indexer support. | `did:nfd:patrick.algo?versionTime=2025-01-15T00:00:00Z` |
+| `service` | Dereference to a named service endpoint URL. Returns the `serviceEndpoint` value of the matching service. | `did:nfd:nfdomains.algo?service=web` |
+| `versionTime` | Request the DID Document as it existed at a specific point in time (ISO 8601). Requires historical indexer support. | `did:nfd:nfdomains.algo?versionTime=2025-01-15T00:00:00Z` |
 
 > **Note:** The `versionTime` query parameter depends on the availability of Algorand Indexer services that provide historical application state. When historical state is not available, the resolver SHOULD return the current document with appropriate metadata indicating the limitation.
 
@@ -191,7 +195,7 @@ The DID Document is constructed dynamically at resolution time by querying the A
 
 3. **Fetch NFD properties from blockchain.** Query the NFD Application's global state and box storage via the Algorand algod API. The following properties are fetched:
    - **Global state:** Internal properties (`i.owner`, `i.expirationTime`, `i.name`, `i.sellamt`)
-   - **Box storage:** Verified properties (`v.caAlgo.*` packed addresses, `v.blueskydid`), user-defined properties (`u.service`, `u.keys`, `u.controller`, `u.alsoKnownAs`, `u.deactivated`)
+   - **Box storage:** Verified properties (`v.domain`, `v.caAlgo.*` packed addresses, `v.blueskydid`, `v.avatar`, `v.banner`, `v.twitter`, `v.discord`, `v.telegram`, `v.github`, `v.linkedin`), user-defined properties (`u.website`, `u.url`, `u.service`, `u.keys`, `u.controller`, `u.alsoKnownAs`, `u.deactivated`, `u.name`, `u.bio`, `u.avatar`, `u.banner`, `u.twitter`, `u.discord`, `u.telegram`, `u.github`, `u.linkedin`)
 
 4. **Check deactivation conditions.** The DID Document is marked as deactivated if any of the following are true:
    - The NFD has expired (`i.expirationTime` is in the past)
@@ -219,19 +223,34 @@ The DID Document is constructed dynamically at resolution time by querying the A
 
 8. **Parse additional keys from `u.keys`.** If the user-defined property `u.keys` contains valid JSON, parse it as an array of additional `VerificationMethod` objects. Ensure all IDs are properly prefixed with the DID and default the `controller` to the DID itself if not specified.
 
-9. **Build service endpoints from `u.service`.** If `u.service` contains valid JSON, parse it as an array of `Service` objects. Ensure all IDs are properly prefixed with the DID.
+9. **Build service endpoints.** If `u.service` contains valid JSON, parse it as an array of `Service` objects. Ensure all IDs are properly prefixed with the DID. Then determine the `#web` LinkedDomains service URL using strict priority: `v.domain` (verified) > `u.website` > `u.url`. If any of these is set, create (or replace) the `#web` LinkedDomains service with that URL, overriding any `#web` entry from `u.service`.
 
-10. **Build `alsoKnownAs`.** Collect alternative identifiers:
+10. **Build the `#profile` NFDProfile service.** If any of the profile properties (`u.name`, `u.bio`, `u.avatar`, `u.banner`) are present, create an `NFDProfile` service with `id: "#profile"`. The `serviceEndpoint` is a structured object with `name`, `bio`, `avatar`, and `banner` fields. For `avatar` and `banner`, verified properties (`v.avatar`, `v.banner`) take priority over user-defined (`u.avatar`, `u.banner`). If all four fields are empty, no `#profile` service is created. The `#profile` service is skipped if a service with that ID already exists in `u.service`.
+
+11. **Build SocialMedia services.** For each supported social media platform, check for a handle in verified (`v.*`) or user-defined (`u.*`) properties (verified takes priority). If a handle is found, create a `SocialMedia` service with the platform's URL. If the handle already contains the platform URL prefix, it is used as-is; otherwise, the handle is formatted into the URL template. Services are skipped if a service with the same ID already exists in `u.service`.
+
+    | Platform | NFD Key | Fragment | URL Template |
+    |----------|---------|----------|-------------|
+    | Twitter/X | `twitter` | `#twitter` | `https://x.com/{handle}` |
+    | Discord | `discord` | `#discord` | `https://discord.com/users/{handle}` |
+    | Telegram | `telegram` | `#telegram` | `https://t.me/{handle}` |
+    | GitHub | `github` | `#github` | `https://github.com/{handle}` |
+    | LinkedIn | `linkedin` | `#linkedin` | `https://linkedin.com/in/{handle}` |
+    | Bluesky | `blueskydid` | `#bluesky` | `https://bsky.app/profile/{blueskydid}` |
+
+    The final service ordering is: `#web` (LinkedDomains) → user-defined services from `u.service` → `#profile` (NFDProfile) → social media services (in platform table order).
+
+12. **Build `alsoKnownAs`.** Collect alternative identifiers:
     - If `v.blueskydid` is set, add it as the first entry (this is a verified Bluesky DID).
     - If `u.alsoKnownAs` contains a valid JSON array of strings, append them.
 
-11. **Set the controller.** The controller defaults to the DID itself (self-sovereign). If `u.controller` is set, its value overrides the default controller.
+13. **Set the controller.** The controller defaults to the DID itself (self-sovereign). If `u.controller` is set, its value overrides the default controller.
 
-12. **Assemble the DID Document** with the standard JSON-LD contexts and all constructed elements.
+14. **Assemble the DID Document** with the standard JSON-LD contexts and all constructed elements.
 
 ### 7.2 Example DID Document
 
-The following is a complete example of a DID Document resolved from `did:nfd:patrick.algo`:
+The following is a complete example of a DID Document resolved from `did:nfd:nfdomains.algo`:
 
 ```json
 {
@@ -240,33 +259,33 @@ The following is a complete example of a DID Document resolved from `did:nfd:pat
     "https://w3id.org/security/suites/ed25519-2020/v1",
     "https://w3id.org/security/suites/x25519-2020/v1"
   ],
-  "id": "did:nfd:patrick.algo",
-  "controller": "did:nfd:patrick.algo",
+  "id": "did:nfd:nfdomains.algo",
+  "controller": "did:nfd:nfdomains.algo",
   "verificationMethod": [
     {
-      "id": "did:nfd:patrick.algo#owner",
+      "id": "did:nfd:nfdomains.algo#owner",
       "type": "Ed25519VerificationKey2020",
-      "controller": "did:nfd:patrick.algo",
+      "controller": "did:nfd:nfdomains.algo",
       "publicKeyMultibase": "z6Mkf5rGMoatrSj1f4CyvuHBeXJELe9RPdzo2PKGNCKVtZxP"
     },
     {
-      "id": "did:nfd:patrick.algo#algo-0",
+      "id": "did:nfd:nfdomains.algo#algo-0",
       "type": "Ed25519VerificationKey2020",
-      "controller": "did:nfd:patrick.algo",
+      "controller": "did:nfd:nfdomains.algo",
       "publicKeyMultibase": "z6MkwFKiEbyLB7jrGMFJy4dDi3hMEMjQfMPBEB6zSWKx5Xqg"
     }
   ],
   "authentication": [
-    "did:nfd:patrick.algo#owner"
+    "did:nfd:nfdomains.algo#owner"
   ],
   "assertionMethod": [
-    "did:nfd:patrick.algo#owner"
+    "did:nfd:nfdomains.algo#owner"
   ],
   "keyAgreement": [
     {
-      "id": "did:nfd:patrick.algo#x25519-owner",
+      "id": "did:nfd:nfdomains.algo#x25519-owner",
       "type": "X25519KeyAgreementKey2020",
-      "controller": "did:nfd:patrick.algo",
+      "controller": "did:nfd:nfdomains.algo",
       "publicKeyMultibase": "z6LSbysY2xFMRpGMhb7tFTLMpeuPRaqaWM1yECx2AtzE3KCc"
     }
   ],
@@ -276,14 +295,39 @@ The following is a complete example of a DID Document resolved from `did:nfd:pat
   ],
   "service": [
     {
-      "id": "did:nfd:patrick.algo#web",
+      "id": "did:nfd:nfdomains.algo#web",
       "type": "LinkedDomains",
-      "serviceEndpoint": "https://patrick.algo.xyz"
+      "serviceEndpoint": "https://nfdomains.algo.xyz"
     },
     {
-      "id": "did:nfd:patrick.algo#messaging",
+      "id": "did:nfd:nfdomains.algo#messaging",
       "type": "DIDCommMessaging",
       "serviceEndpoint": "https://msg.example.com/patrick"
+    },
+    {
+      "id": "did:nfd:nfdomains.algo#profile",
+      "type": "NFDProfile",
+      "serviceEndpoint": {
+        "name": "NFDomains",
+        "bio": "The naming identity layer for Algorand",
+        "avatar": "https://images.nf.domains/avatar.png",
+        "banner": "https://images.nf.domains/banner.png"
+      }
+    },
+    {
+      "id": "did:nfd:nfdomains.algo#twitter",
+      "type": "SocialMedia",
+      "serviceEndpoint": "https://x.com/naborhoods"
+    },
+    {
+      "id": "did:nfd:nfdomains.algo#github",
+      "type": "SocialMedia",
+      "serviceEndpoint": "https://github.com/TxnLab"
+    },
+    {
+      "id": "did:nfd:nfdomains.algo#bluesky",
+      "type": "SocialMedia",
+      "serviceEndpoint": "https://bsky.app/profile/did:plc:abc123xyz"
     }
   ]
 }
@@ -302,6 +346,8 @@ A full resolution result includes the DID Document along with resolution and doc
     "duration": 142
   },
   "didDocumentMetadata": {
+    "created": "2024-03-15T12:00:00Z",
+    "updated": "2025-01-10T08:30:00Z",
     "deactivated": false,
     "nfdAppId": 760937186
   }
@@ -370,7 +416,7 @@ No separate "DID registration" transaction is needed. The act of minting an NFD 
 |--------|---------|
 | **Method** | Submit Algorand transactions to modify NFD properties. |
 | **Process** | The NFD owner (or authorized manager) submits application call transactions to the NFD smart contract, updating user-defined (`u.*`) properties in box storage. |
-| **Updatable properties** | `u.service` (service endpoints), `u.keys` (additional verification methods), `u.controller` (controller override), `u.alsoKnownAs` (alternative identifiers), `u.deactivated` (explicit deactivation flag). |
+| **Updatable properties** | `u.service` (service endpoints), `u.keys` (additional verification methods), `u.controller` (controller override), `u.alsoKnownAs` (alternative identifiers), `u.deactivated` (explicit deactivation flag), `u.name` / `u.bio` / `u.avatar` / `u.banner` (profile data), `u.twitter` / `u.discord` / `u.telegram` / `u.github` / `u.linkedin` (social media handles). |
 | **On-chain effect** | The application's box storage is updated. The next resolution will reflect the changes (subject to resolver cache TTL). |
 | **Authorization** | Only the NFD owner (the Algorand account in `i.owner`) or an authorized manager can update properties. This is enforced by the NFD smart contract. |
 | **Versioning** | No explicit versioning is maintained. The DID Document always reflects the current on-chain state. Historical states can be reconstructed using an Algorand Indexer with historical data. |
@@ -406,10 +452,21 @@ These properties are automatically read from the NFD and used to construct the D
 |-------------|-----------|---------------------|-------------|
 | `i.name` | Internal | `id` | The NFD name. Used to construct the DID identifier (`did:nfd:<name>`). |
 | `i.owner` | Internal | `verificationMethod[0]`, `authentication`, `assertionMethod` | The Algorand address of the NFD owner. Decoded to an Ed25519 public key and used as the primary verification method (`#owner`). Also used to derive the X25519 key agreement key (`#x25519-owner`). |
+| `i.timeCreated` | Internal | `didDocumentMetadata.created` | Unix timestamp of NFD creation. Formatted as RFC 3339 (e.g., `2024-03-15T12:00:00Z`). |
+| `i.timeChanged` | Internal | `didDocumentMetadata.updated` | Unix timestamp of the last NFD modification. Formatted as RFC 3339. |
 | `i.expirationTime` | Internal | `didDocumentMetadata.deactivated` | Unix timestamp of NFD expiration. If in the past, the DID is deactivated. |
 | `i.sellamt` | Internal | `didDocumentMetadata.deactivated` | Sale amount in microAlgos. If non-zero, the NFD is for sale and the DID is deactivated. |
 | `v.caAlgo` | Verified | `verificationMethod[1..n]` | Comma-delimited list of verified Algorand addresses (decoded from packed 32-byte public keys in box storage). Each address becomes an additional Ed25519 verification method (`#algo-<index>`). Duplicate of the owner address is skipped. |
-| `v.blueskydid` | Verified | `alsoKnownAs[0]` | Verified Bluesky DID (`did:plc:...`). Added as the first entry in `alsoKnownAs`. |
+| `v.domain` | Verified | `service` (`#web`) | Verified domain URL. Highest priority source for the `#web` LinkedDomains service endpoint (priority: `v.domain` > `u.website` > `u.url` > `u.service`). |
+| `v.blueskydid` | Verified | `alsoKnownAs[0]`, `service` (`#bluesky`) | Verified Bluesky DID (`did:plc:...`). Added as the first entry in `alsoKnownAs`. Also auto-generates a `#bluesky` SocialMedia service with URL `https://bsky.app/profile/{blueskydid}`. |
+| `v.avatar` | Verified | `service` (`#profile`) | Verified avatar URL. Takes priority over `u.avatar` in the NFDProfile service endpoint. |
+| `v.banner` | Verified | `service` (`#profile`) | Verified banner URL. Takes priority over `u.banner` in the NFDProfile service endpoint. |
+| `v.twitter` | Verified | `service` (`#twitter`) | Verified Twitter/X handle. Takes priority over `u.twitter`. Auto-generates a SocialMedia service. |
+| `v.discord` | Verified | `service` (`#discord`) | Verified Discord handle. Takes priority over `u.discord`. Auto-generates a SocialMedia service. |
+| `v.telegram` | Verified | `service` (`#telegram`) | Verified Telegram handle. Takes priority over `u.telegram`. Auto-generates a SocialMedia service. |
+| `v.github` | Verified | `service` (`#github`) | Verified GitHub handle. Takes priority over `u.github`. Auto-generates a SocialMedia service. |
+| `v.linkedin` | Verified | `service` (`#linkedin`) | Verified LinkedIn handle. Takes priority over `u.linkedin`. Auto-generates a SocialMedia service. |
+| `v.blueskydid` | Verified | `service` (`#bluesky`) | Verified Bluesky DID. In addition to being added to `alsoKnownAs`, also auto-generates a SocialMedia service with URL `https://bsky.app/profile/{blueskydid}`. |
 
 ### 9.2 Optional User-Defined Properties
 
@@ -417,11 +474,22 @@ These properties are set by the NFD owner in box storage (`u.*` namespace) to cu
 
 | NFD Property | Format | DID Document Element | Description |
 |-------------|--------|---------------------|-------------|
-| `u.service` | JSON array | `service` | Array of service endpoint objects. Each object has `id` (fragment), `type`, and `serviceEndpoint` fields. Fragment IDs are automatically prefixed with the DID. |
+| `u.website` | String (URL) | `service` (`#web`) | Creates a `#web` LinkedDomains service endpoint. Used when `v.domain` is not set. Takes priority over `u.url` and any `#web` entry in `u.service`. |
+| `u.url` | String (URL) | `service` (`#web`) | Fallback for `#web` LinkedDomains service. Used when neither `v.domain` nor `u.website` is set. Takes priority over any `#web` entry in `u.service`. |
+| `u.service` | JSON array | `service` | Array of service endpoint objects. Each object has `id` (fragment), `type`, and `serviceEndpoint` fields. Fragment IDs are automatically prefixed with the DID. A `#web` entry in this array is the lowest priority source for the `#web` LinkedDomains service. |
 | `u.keys` | JSON array | `verificationMethod[n..]` | Array of additional verification method objects. Each has `id`, `type`, `controller`, and `publicKeyMultibase` fields. Allows the owner to add non-Algorand keys (e.g., secp256k1, P-256). |
 | `u.controller` | String (DID) | `controller` | Overrides the default controller (which is the DID itself). Allows delegation of control to another DID (e.g., `did:nfd:admin.algo`). |
 | `u.alsoKnownAs` | JSON array of strings | `alsoKnownAs[1..]` | Additional alternative identifiers. Appended after `v.blueskydid` (if present). Can include DIDs from other methods or URI identifiers. |
 | `u.deactivated` | `"true"` or absent | `didDocumentMetadata.deactivated` | When set to `"true"`, explicitly deactivates the DID. The resolver returns a minimal document. |
+| `u.name` | String | `service` (`#profile`) | Display name for the NFDProfile service. |
+| `u.bio` | String | `service` (`#profile`) | Bio/description for the NFDProfile service. |
+| `u.avatar` | String (URL) | `service` (`#profile`) | Avatar image URL. Used in NFDProfile if `v.avatar` is not set. |
+| `u.banner` | String (URL) | `service` (`#profile`) | Banner image URL. Used in NFDProfile if `v.banner` is not set. |
+| `u.twitter` | String (handle) | `service` (`#twitter`) | Twitter/X handle. Auto-generates a SocialMedia service if `v.twitter` is not set. |
+| `u.discord` | String (handle) | `service` (`#discord`) | Discord handle. Auto-generates a SocialMedia service if `v.discord` is not set. |
+| `u.telegram` | String (handle) | `service` (`#telegram`) | Telegram handle. Auto-generates a SocialMedia service if `v.telegram` is not set. |
+| `u.github` | String (handle) | `service` (`#github`) | GitHub handle. Auto-generates a SocialMedia service if `v.github` is not set. |
+| `u.linkedin` | String (handle) | `service` (`#linkedin`) | LinkedIn handle. Auto-generates a SocialMedia service if `v.linkedin` is not set. |
 
 ### 9.3 Multi-Account Identity Model
 
@@ -429,7 +497,7 @@ The `did:nfd` method provides a multi-account identity model that is unique amon
 
 #### Forward Resolution: DID → Accounts
 
-Resolving `did:nfd:patrick.algo` returns a DID Document containing verification methods for:
+Resolving `did:nfd:nfdomains.algo` returns a DID Document containing verification methods for:
 
 - The **owner address** (`i.owner`) — the primary Ed25519 key (`#owner`)
 - All **verified linked addresses** (`v.caAlgo`) — additional Ed25519 keys (`#algo-0`, `#algo-1`, etc.)
@@ -484,7 +552,7 @@ To declare a website and a DIDComm messaging endpoint, the NFD owner would set `
   {
     "id": "#web",
     "type": "LinkedDomains",
-    "serviceEndpoint": "https://patrick.algo.xyz"
+    "serviceEndpoint": "https://nfdomains.algo.xyz"
   },
   {
     "id": "#messaging",
@@ -494,7 +562,7 @@ To declare a website and a DIDComm messaging endpoint, the NFD owner would set `
 ]
 ```
 
-The resolver prepends the DID to each fragment ID, producing `did:nfd:patrick.algo#web` and `did:nfd:patrick.algo#messaging`.
+The resolver prepends the DID to each fragment ID, producing `did:nfd:nfdomains.algo#web` and `did:nfd:nfdomains.algo#messaging`.
 
 ---
 

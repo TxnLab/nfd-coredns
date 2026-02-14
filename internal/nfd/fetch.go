@@ -119,8 +119,12 @@ func (n *nfdFetcher) FetchNfdDidVals(ctx context.Context, name string) (Properti
 		return Properties{}, 0, err
 	}
 	props, err := n.FetchNFD(ctx, nfdId, false, []string{
-		"u.service", "u.keys", "u.controller", "u.alsoKnownAs", "u.deactivated",
-		"v.blueskydid",
+		"u.website", "u.url", "u.service", "u.keys", "u.controller", "u.alsoKnownAs", "u.deactivated",
+		"u.name", "u.bio", "u.avatar", "u.banner",
+		"u.twitter", "u.discord", "u.telegram", "u.github", "u.linkedin",
+		"v.domain", "v.blueskydid",
+		"v.avatar", "v.banner",
+		"v.twitter", "v.discord", "v.telegram", "v.github", "v.linkedin",
 		"v.caAlgo*", // v.caAlgo.N.as boxes contain packed 32-byte addresses
 	})
 	if err != nil {
@@ -179,7 +183,7 @@ func (n *nfdFetcher) FindNFDAppIDByName(ctx context.Context, nfdName string) (ui
 		if len(boxValue.Value) != 16 {
 			return 0, fmt.Errorf("box data is invalid - length:%d but should be 16 for nfd name:%s", len(boxValue.Value), nfdName)
 		}
-		//asaID := binary.BigEndian.Uint64(boxValue.Value[0:8])
+		// asaID := binary.BigEndian.Uint64(boxValue.Value[0:8])
 		appID := binary.BigEndian.Uint64(boxValue.Value[8:])
 		return appID, nil
 	}

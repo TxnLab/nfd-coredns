@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025. TxnLab Inc.
+ * Copyright (c) 2025-2026. TxnLab Inc.
  * All Rights reserved.
  */
 
@@ -32,7 +32,15 @@ type VerificationMethod struct {
 type Service struct {
 	ID              string `json:"id"`
 	Type            string `json:"type"`
-	ServiceEndpoint string `json:"serviceEndpoint"`
+	ServiceEndpoint any    `json:"serviceEndpoint"`
+}
+
+// NFDProfileEndpoint represents the structured endpoint for an NFDProfile service.
+type NFDProfileEndpoint struct {
+	Name   string `json:"name,omitempty"`
+	Bio    string `json:"bio,omitempty"`
+	Avatar string `json:"avatar,omitempty"`
+	Banner string `json:"banner,omitempty"`
 }
 
 // DID JSON-LD Contexts

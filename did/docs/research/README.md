@@ -148,7 +148,7 @@ Every DID method must define:
 | Naming | Hash | Domain | Hash | Key | Hash | Address | ENS name | **NFD name** |
 
 **Unique advantages of did:nfd:**
-- Human-readable identifiers (`did:nfd:patrick.algo` vs `did:ethr:0x...`)
+- Human-readable identifiers (`did:nfd:nfdomains.algo` vs `did:ethr:0x...`)
 - Native Ed25519 keys (Algorand uses Ed25519, aligning with modern DID cryptography)
 - Built-in expiration mechanism
 - Existing ecosystem of 200,000+ registered NFDs
@@ -266,7 +266,7 @@ NFDs store properties in three namespaces:
 
 | Property | Type | Description |
 |---|---|---|
-| `i.name` | string | NFD name (e.g., "patrick.algo") |
+| `i.name` | string | NFD name (e.g., "nfdomains.algo") |
 | `i.owner` | address | Current owner's Algorand address (Ed25519 public key) |
 | `i.expirationTime` | uint64 | Unix timestamp of expiration |
 | `i.sellamt` | uint64 | Sale price (0 = not for sale) |
@@ -278,17 +278,34 @@ NFDs store properties in three namespaces:
 |---|---|---|
 | `v.caAlgo` | packed addresses | Verified Algorand addresses (comma-separated after decoding) |
 | `v.blueskydid` | string | Bluesky DID (e.g., "did:plc:abc123") |
+| `v.domain` | string | Verified domain URL (highest priority for `#web` service) |
+| `v.avatar` | string | Verified avatar URL (priority over `u.avatar` for `#profile` service) |
+| `v.banner` | string | Verified banner URL (priority over `u.banner` for `#profile` service) |
+| `v.twitter` | string | Verified Twitter/X handle (priority over `u.twitter` for `#twitter` service) |
+| `v.discord` | string | Verified Discord handle (priority over `u.discord`) |
+| `v.telegram` | string | Verified Telegram handle (priority over `u.telegram`) |
+| `v.github` | string | Verified GitHub handle (priority over `u.github`) |
+| `v.linkedin` | string | Verified LinkedIn handle (priority over `u.linkedin`) |
 
 **User-defined (owner-set, for DID):**
 
 | Property | Type | Description |
 |---|---|---|
 | `u.dns` | JSON | DNS records (existing) |
-| `u.service` | JSON | DID service endpoints (new) |
-| `u.keys` | JSON | Additional verification methods (new) |
-| `u.controller` | string | Override DID controller (new) |
-| `u.alsoKnownAs` | JSON | Additional aliases (new) |
-| `u.deactivated` | string | Explicit deactivation flag (new) |
+| `u.service` | JSON | DID service endpoints |
+| `u.keys` | JSON | Additional verification methods |
+| `u.controller` | string | Override DID controller |
+| `u.alsoKnownAs` | JSON | Additional aliases |
+| `u.deactivated` | string | Explicit deactivation flag |
+| `u.name` | string | Display name (for `#profile` NFDProfile service) |
+| `u.bio` | string | Bio/description (for `#profile` NFDProfile service) |
+| `u.avatar` | string | Avatar image URL (for `#profile`, fallback if `v.avatar` not set) |
+| `u.banner` | string | Banner image URL (for `#profile`, fallback if `v.banner` not set) |
+| `u.twitter` | string | Twitter/X handle (auto-generates `#twitter` SocialMedia service) |
+| `u.discord` | string | Discord handle (auto-generates `#discord` SocialMedia service) |
+| `u.telegram` | string | Telegram handle (auto-generates `#telegram` SocialMedia service) |
+| `u.github` | string | GitHub handle (auto-generates `#github` SocialMedia service) |
+| `u.linkedin` | string | LinkedIn handle (auto-generates `#linkedin` SocialMedia service) |
 
 ### Existing DID Integration
 
@@ -306,9 +323,9 @@ NFDs already have a DID integration precedent:
 
 ### NFD Name Validation
 
-Root NFD names match: `^[a-z0-9]{1,27}\.algo$`
-- 1-27 lowercase alphanumeric characters before `.algo`
-- Segments (e.g., `mail.patrick.algo`) are not separate identities for DID purposes
+NFD names match: `^([a-z0-9]{1,27}\.){1,2}algo$`
+- Roots have 1-27 lowercase alphanumeric characters before `.algo`
+- Single-Segments (e.g., `mail.nfdomains.algo`) are not separate identities for DID purposes
 
 ---
 
@@ -325,7 +342,7 @@ Root NFD names match: `^[a-z0-9]{1,27}\.algo$`
 
 ### Why Not Use Existing Methods?
 
-- **did:web**: Would work for `patrick.algo.xyz` but loses decentralization — depends on algo.xyz server
+- **did:web**: Would work for `nfdomains.algo.xyz` but loses decentralization — depends on algo.xyz server
 - **did:key**: No services, no rotation, no human-readable names
 - **did:ethr**: Wrong blockchain, wrong key type, no human-readable names
 - **did:plc**: Centralized directory, doesn't leverage NFD on-chain data

@@ -9,7 +9,7 @@ DIDs are a [W3C standard](https://www.w3.org/TR/did-core/) for decentralized dig
 The `did:nfd` method bridges Algorand NFDs into the DID ecosystem:
 
 ```
-did:nfd:patrick.algo
+did:nfd:nfdomains.algo
 ```
 
 That single string is a resolvable identifier. Anyone can look it up and get back a **DID Document** containing your public keys, service endpoints, and linked identities -- all sourced from your on-chain NFD data.
@@ -17,7 +17,7 @@ That single string is a resolvable identifier. Anyone can look it up and get bac
 **Why does this matter?**
 
 - **Self-sovereign identity**: Your Algorand wallet key proves you own the DID. No passwords, no third parties.
-- **Human-readable**: Unlike `did:key:z6Mk...` or `did:plc:abc123`, `did:nfd:patrick.algo` is something you can actually read and remember.
+- **Human-readable**: Unlike `did:key:z6Mk...` or `did:plc:abc123`, `did:nfd:nfdomains.algo` is something you can actually read and remember.
 - **Zero setup for basics**: If you own an NFD, you already have a DID. Your owner key is automatically included.
 - **Interoperable**: Works with the broader W3C DID ecosystem -- verifiable credentials, decentralized authentication, cross-chain identity linking.
 - **On-chain and verifiable**: The source of truth is the Algorand blockchain, not a centralized server.
@@ -29,7 +29,7 @@ That single string is a resolvable identifier. Anyone can look it up and get bac
 Resolve any NFD as a DID with a single HTTP request:
 
 ```bash
-curl http://localhost:8080/1.0/identifiers/did:nfd:patrick.algo
+curl http://localhost:8080/1.0/identifiers/did:nfd:nfdomains.algo
 ```
 
 You will get back a JSON response containing the full DID Document:
@@ -42,23 +42,23 @@ You will get back a JSON response containing the full DID Document:
       "https://w3id.org/security/suites/ed25519-2020/v1",
       "https://w3id.org/security/suites/x25519-2020/v1"
     ],
-    "id": "did:nfd:patrick.algo",
-    "controller": "did:nfd:patrick.algo",
+    "id": "did:nfd:nfdomains.algo",
+    "controller": "did:nfd:nfdomains.algo",
     "verificationMethod": [
       {
-        "id": "did:nfd:patrick.algo#owner",
+        "id": "did:nfd:nfdomains.algo#owner",
         "type": "Ed25519VerificationKey2020",
-        "controller": "did:nfd:patrick.algo",
+        "controller": "did:nfd:nfdomains.algo",
         "publicKeyMultibase": "z6Mkf5r..."
       }
     ],
-    "authentication": ["did:nfd:patrick.algo#owner"],
-    "assertionMethod": ["did:nfd:patrick.algo#owner"],
+    "authentication": ["did:nfd:nfdomains.algo#owner"],
+    "assertionMethod": ["did:nfd:nfdomains.algo#owner"],
     "keyAgreement": [
       {
-        "id": "did:nfd:patrick.algo#x25519-owner",
+        "id": "did:nfd:nfdomains.algo#x25519-owner",
         "type": "X25519KeyAgreementKey2020",
-        "controller": "did:nfd:patrick.algo",
+        "controller": "did:nfd:nfdomains.algo",
         "publicKeyMultibase": "z6LShs..."
       }
     ]
@@ -98,8 +98,10 @@ So `did:nfd:yourname.algo` resolves immediately for any active, owned NFD. The b
 - **Key agreement** capability (establish encrypted channels)
 - **Verified Algorand addresses** from `v.caAlgo` (if you have verified additional wallets)
 - **Bluesky DID** from `v.blueskydid` in `alsoKnownAs` (if you have linked your Bluesky account)
+- **NFD Profile** as a `#profile` service (if you have set a name, bio, avatar, or banner on your NFD)
+- **Social media links** as individual services (if you have set Twitter, Discord, Telegram, GitHub, or LinkedIn handles)
 
-You only need to configure additional properties if you want to add service endpoints, extra keys, or other advanced features.
+You only need to configure additional properties if you want to add custom service endpoints, extra keys, or other advanced features.
 
 ---
 
@@ -115,19 +117,19 @@ If you have verified additional Algorand addresses on your NFD (through the NFD 
 {
   "verificationMethod": [
     {
-      "id": "did:nfd:patrick.algo#owner",
+      "id": "did:nfd:nfdomains.algo#owner",
       "type": "Ed25519VerificationKey2020",
       "publicKeyMultibase": "z6Mkf5r...",
       "blockchainAccountId": "AAAA...YYYY"
     },
     {
-      "id": "did:nfd:patrick.algo#algo-0",
+      "id": "did:nfd:nfdomains.algo#algo-0",
       "type": "Ed25519VerificationKey2020",
       "publicKeyMultibase": "z6Mkx9a...",
       "blockchainAccountId": "BBBB...ZZZZ"
     },
     {
-      "id": "did:nfd:patrick.algo#algo-1",
+      "id": "did:nfd:nfdomains.algo#algo-1",
       "type": "Ed25519VerificationKey2020",
       "publicKeyMultibase": "z6Mkw2b...",
       "blockchainAccountId": "CCCC...WWWW"
@@ -142,7 +144,7 @@ Each of these keys is a fully functional Ed25519 verification method. A verifier
 
 NFD supports reverse resolution: given any Algorand address, you can discover all NFDs where that address appears as owner or as a verified linked account. This means:
 
-- **Forward lookup:** *"What accounts does `did:nfd:patrick.algo` reference?"* → The owner address plus all verified linked addresses.
+- **Forward lookup:** *"What accounts does `did:nfd:nfdomains.algo` reference?"* → The owner address plus all verified linked addresses.
 - **Reverse lookup:** *"For this Algorand account, what DIDs reference it?"* → All NFDs where this account is the owner or a verified linked address.
 
 This bidirectional resolution creates a true **many-to-many** relationship:
@@ -186,13 +188,39 @@ The following properties are recognized by the DID resolver:
 
 | Property | Type | Purpose |
 |----------|------|---------|
-| `u.service` | JSON array | Service endpoints (websites, messaging, etc.) |
+| `u.website` | string (URL) | Creates a `#web` LinkedDomains service (priority: `v.domain` > `u.website` > `u.url` > `u.service`) |
+| `u.url` | string (URL) | Fallback for `#web` LinkedDomains if `v.domain` and `u.website` are not set |
+| `u.service` | JSON array | Custom service endpoints (websites, messaging, etc.) |
 | `u.keys` | JSON array | Additional verification methods (non-Algorand keys) |
 | `u.controller` | string | Override the DID controller |
 | `u.alsoKnownAs` | JSON array | Link to other identifiers you control |
 | `u.deactivated` | string | Set to `"true"` to deactivate the DID |
+| `u.name` | string | Display name (auto-generates `#profile` NFDProfile service) |
+| `u.bio` | string | Bio/description (auto-generates `#profile` NFDProfile service) |
+| `u.avatar` | string (URL) | Avatar image URL (used in `#profile` if `v.avatar` not set) |
+| `u.banner` | string (URL) | Banner image URL (used in `#profile` if `v.banner` not set) |
+| `u.twitter` | string (handle) | Twitter/X handle (auto-generates `#twitter` SocialMedia service) |
+| `u.discord` | string (handle) | Discord handle (auto-generates `#discord` SocialMedia service) |
+| `u.telegram` | string (handle) | Telegram handle (auto-generates `#telegram` SocialMedia service) |
+| `u.github` | string (handle) | GitHub handle (auto-generates `#github` SocialMedia service) |
+| `u.linkedin` | string (handle) | LinkedIn handle (auto-generates `#linkedin` SocialMedia service) |
 
 You set these properties using an NFD update transaction on the Algorand blockchain (e.g., through the NFD app at [app.nf.domains](https://app.nf.domains) or programmatically via the Algorand SDK).
+
+### Website / Domain
+
+The resolver automatically creates a `#web` LinkedDomains service endpoint using strict priority:
+
+1. **`v.domain`** (verified) -- highest priority, cryptographically proven
+2. **`u.website`** -- user-set website URL
+3. **`u.url`** -- user-set URL (fallback)
+4. **`u.service` `#web` entry** -- lowest priority
+
+The first non-empty value wins. If you have a verified domain (`v.domain`), no additional configuration is needed. Otherwise, the simplest option is to set `u.website` to your website URL:
+
+```
+https://yourname.algo.xyz
+```
 
 ### Service Endpoints (u.service)
 
@@ -209,6 +237,8 @@ Set `u.service` to a JSON array of service objects:
   }
 ]
 ```
+
+> **Note:** If `v.domain`, `u.website`, or `u.url` is set, they take priority for the `#web` LinkedDomains service over any `#web` entry in `u.service`.
 
 Each service object has three fields:
 
@@ -234,6 +264,54 @@ Each service object has three fields:
   }
 ]
 ```
+
+### NFD Profile (auto-generated)
+
+If you have set any of the profile properties on your NFD (`u.name`, `u.bio`, `u.avatar`, `u.banner`), the resolver automatically creates a `#profile` service of type `NFDProfile`. No JSON configuration is needed -- just set the properties on your NFD.
+
+For avatar and banner, verified properties (`v.avatar`, `v.banner`) take priority over user-defined values.
+
+The resulting service in your DID Document looks like:
+
+```json
+{
+  "id": "did:nfd:yourname.algo#profile",
+  "type": "NFDProfile",
+  "serviceEndpoint": {
+    "name": "Your Name",
+    "bio": "Your bio text",
+    "avatar": "https://example.com/avatar.png",
+    "banner": "https://example.com/banner.png"
+  }
+}
+```
+
+Only non-empty fields are included. If all four fields are empty, no `#profile` service is created.
+
+### Social Media (auto-generated)
+
+Social media handles stored on your NFD are automatically converted to `SocialMedia` services. For each platform, verified (`v.*`) handles take priority over user-defined (`u.*`).
+
+| NFD Property | Service ID | URL Format |
+|-------------|-----------|------------|
+| `twitter` | `#twitter` | `https://x.com/{handle}` |
+| `discord` | `#discord` | `https://discord.com/users/{handle}` |
+| `telegram` | `#telegram` | `https://t.me/{handle}` |
+| `github` | `#github` | `https://github.com/{handle}` |
+| `linkedin` | `#linkedin` | `https://linkedin.com/in/{handle}` |
+| `blueskydid` | `#bluesky` | `https://bsky.app/profile/{blueskydid}` |
+
+For example, if `u.twitter` is set to `myhandle`, your DID Document will include:
+
+```json
+{
+  "id": "did:nfd:yourname.algo#twitter",
+  "type": "SocialMedia",
+  "serviceEndpoint": "https://x.com/myhandle"
+}
+```
+
+If you define a custom service with the same ID (e.g., `#twitter`) in `u.service`, the auto-generated version is skipped and your custom definition is preserved.
 
 ### Additional Keys (u.keys)
 
@@ -296,37 +374,56 @@ Here is a walkthrough of every field in a fully populated DID Document:
     "https://w3id.org/security/suites/ed25519-2020/v1",
     "https://w3id.org/security/suites/x25519-2020/v1"
   ],
-  "id": "did:nfd:patrick.algo",
-  "controller": "did:nfd:patrick.algo",
+  "id": "did:nfd:nfdomains.algo",
+  "controller": "did:nfd:nfdomains.algo",
   "verificationMethod": [
     {
-      "id": "did:nfd:patrick.algo#owner",
+      "id": "did:nfd:nfdomains.algo#owner",
       "type": "Ed25519VerificationKey2020",
-      "controller": "did:nfd:patrick.algo",
+      "controller": "did:nfd:nfdomains.algo",
       "publicKeyMultibase": "z6Mkf5r..."
     },
     {
-      "id": "did:nfd:patrick.algo#algo-0",
+      "id": "did:nfd:nfdomains.algo#algo-0",
       "type": "Ed25519VerificationKey2020",
-      "controller": "did:nfd:patrick.algo",
+      "controller": "did:nfd:nfdomains.algo",
       "publicKeyMultibase": "z6Mkx9a..."
     }
   ],
-  "authentication": ["did:nfd:patrick.algo#owner"],
-  "assertionMethod": ["did:nfd:patrick.algo#owner"],
+  "authentication": ["did:nfd:nfdomains.algo#owner"],
+  "assertionMethod": ["did:nfd:nfdomains.algo#owner"],
   "keyAgreement": [
     {
-      "id": "did:nfd:patrick.algo#x25519-owner",
+      "id": "did:nfd:nfdomains.algo#x25519-owner",
       "type": "X25519KeyAgreementKey2020",
-      "controller": "did:nfd:patrick.algo",
+      "controller": "did:nfd:nfdomains.algo",
       "publicKeyMultibase": "z6LShs..."
     }
   ],
   "service": [
     {
-      "id": "did:nfd:patrick.algo#web",
+      "id": "did:nfd:nfdomains.algo#web",
       "type": "LinkedDomains",
-      "serviceEndpoint": "https://patrick.algo.xyz"
+      "serviceEndpoint": "https://nfdomains.algo.xyz"
+    },
+    {
+      "id": "did:nfd:nfdomains.algo#profile",
+      "type": "NFDProfile",
+      "serviceEndpoint": {
+        "name": "NFDomains",
+        "bio": "The naming identity layer for Algorand",
+        "avatar": "https://images.nf.domains/avatar.png"
+      }
+    },
+    {
+      "id": "did:nfd:nfdomains.algo#twitter",
+      "type": "SocialMedia",
+      "serviceEndpoint": "https://x.com/naborhoods"
+    },
+    {
+      "id": "did:nfd:nfdomains.algo#bluesky",
+      "type": "SocialMedia",
+      "serviceEndpoint": "https://bsky.app/profile/did:plc:abc123xyz"
     }
   ],
   "alsoKnownAs": [
@@ -347,7 +444,7 @@ Here is a walkthrough of every field in a fully populated DID Document:
 | `authentication` | Automatic | Which keys can authenticate (prove identity). Only the owner key. |
 | `assertionMethod` | Automatic | Which keys can make assertions (sign credentials). Only the owner key. |
 | `keyAgreement` | Automatic | X25519 key derived from the owner's Ed25519 key, used for encrypted communication. |
-| `service` | `u.service` | Service endpoints you have configured. |
+| `service` | `v.domain` / `u.website` / `u.url` / `u.service` / profile & social props | Service endpoints. Includes: `#web` LinkedDomains (priority: `v.domain` > `u.website` > `u.url` > `u.service`), user-defined services from `u.service`, auto-generated `#profile` NFDProfile (from `u.name`/`u.bio`/`u.avatar`/`u.banner`), and auto-generated SocialMedia services (from twitter/discord/telegram/github/linkedin handles). |
 | `alsoKnownAs` | `v.blueskydid` + `u.alsoKnownAs` | Other identifiers linked to this DID. Bluesky DID is included first if present. |
 
 ---
@@ -366,7 +463,7 @@ Your DID is backed by your Algorand Ed25519 key. To prove you control `did:nfd:y
 
 **Step 1: Verifier creates a challenge**
 ```
-Challenge: "authenticate-did:nfd:patrick.algo-1701432000-abc123"
+Challenge: "authenticate-did:nfd:nfdomains.algo-1701432000-abc123"
 ```
 
 **Step 2: You sign the challenge**
@@ -382,7 +479,7 @@ signature := crypto.SignBytes(privateKey, []byte(challenge))
 
 **Step 3: Verifier checks the signature**
 
-The verifier resolves `did:nfd:patrick.algo`, extracts the `publicKeyMultibase` from the `#owner` verification method, decodes it back to a raw Ed25519 public key, and verifies:
+The verifier resolves `did:nfd:nfdomains.algo`, extracts the `publicKeyMultibase` from the `#owner` verification method, decodes it back to a raw Ed25519 public key, and verifies:
 
 ```go
 import "crypto/ed25519"
@@ -394,7 +491,7 @@ pubkey := decodeMultibase(didDoc.VerificationMethod[0].PublicKeyMultibase)
 valid := ed25519.Verify(pubkey, []byte(challenge), signature)
 ```
 
-If `valid` is `true`, the signer controls `did:nfd:patrick.algo`.
+If `valid` is `true`, the signer controls `did:nfd:nfdomains.algo`.
 
 ### Key encoding details
 
@@ -458,7 +555,7 @@ go build -o did-resolver ./did/cmd/did-resolver
 curl http://localhost:8080/health
 
 # Resolve a DID
-curl http://localhost:8080/1.0/identifiers/did:nfd:patrick.algo
+curl http://localhost:8080/1.0/identifiers/did:nfd:nfdomains.algo
 
 # Check method properties
 curl http://localhost:8080/1.0/properties
@@ -474,7 +571,7 @@ Resolve a DID to its DID Document.
 
 **Request:**
 ```
-GET /1.0/identifiers/did:nfd:patrick.algo
+GET /1.0/identifiers/did:nfd:nfdomains.algo
 Accept: application/did+json
 ```
 
@@ -612,7 +709,10 @@ Notice: no verification methods, no services, no authentication. The DID exists 
 
 ## Bluesky Integration
 
-If you have verified your Bluesky account with your NFD, the Bluesky DID (`v.blueskydid`) is automatically included in the `alsoKnownAs` field of your DID Document.
+If you have verified your Bluesky account with your NFD, the Bluesky DID (`v.blueskydid`) is automatically used in two ways:
+
+1. **`alsoKnownAs`**: The Bluesky DID is added as the first entry in `alsoKnownAs`, creating a bidirectional link between your `did:nfd` identity and your Bluesky (`did:plc`) identity.
+2. **`#bluesky` service**: A `SocialMedia` service is auto-generated with the URL `https://bsky.app/profile/{blueskydid}`, linking to your Bluesky profile.
 
 For example, if your NFD has `v.blueskydid` set to `did:plc:abc123xyz`, your DID Document will include:
 
@@ -620,11 +720,16 @@ For example, if your NFD has `v.blueskydid` set to `did:plc:abc123xyz`, your DID
 {
   "alsoKnownAs": [
     "did:plc:abc123xyz"
+  ],
+  "service": [
+    {
+      "id": "did:nfd:yourname.algo#bluesky",
+      "type": "SocialMedia",
+      "serviceEndpoint": "https://bsky.app/profile/did:plc:abc123xyz"
+    }
   ]
 }
 ```
-
-This creates a bidirectional link between your `did:nfd` identity and your Bluesky (`did:plc`) identity. The Bluesky DID is always listed first in `alsoKnownAs`, before any entries from `u.alsoKnownAs`.
 
 You do not need to add your Bluesky DID to `u.alsoKnownAs` -- it is picked up automatically from the verified property.
 
@@ -632,7 +737,7 @@ You do not need to add your Bluesky DID to `u.alsoKnownAs` -- it is picked up au
 
 ## Limitations
 
-1. **Root and single-segment NFDs only**: Both root NFDs (`patrick.algo`) and single-segment NFDs (`mail.patrick.algo`) resolve as DIDs. Multi-level segments (e.g., `a.b.c.algo`) are not valid DIDs.
+1. **Root and single-segment NFDs only**: Both root NFDs (`nfdomains.algo`) and single-segment NFDs (`mail.nfdomains.algo`) resolve as DIDs. Multi-level segments (e.g., `a.b.c.algo`) are not valid DIDs.
 
 2. **Public blockchain data**: All DID Document data is sourced from the public Algorand blockchain. Do not store private or sensitive information in your NFD properties.
 
@@ -659,16 +764,16 @@ The DID format is wrong. Check that:
 
 ```bash
 # Valid
-curl http://localhost:8080/1.0/identifiers/did:nfd:patrick.algo
+curl http://localhost:8080/1.0/identifiers/did:nfd:nfdomains.algo
 
 # Invalid -- uppercase
-curl http://localhost:8080/1.0/identifiers/did:nfd:Patrick.algo
+curl http://localhost:8080/1.0/identifiers/did:nfd:Nfdomains.algo
 
 # Invalid -- multi-level segment
 curl http://localhost:8080/1.0/identifiers/did:nfd:a.b.c.algo
 
 # Invalid -- wrong method
-curl http://localhost:8080/1.0/identifiers/did:web:patrick.algo
+curl http://localhost:8080/1.0/identifiers/did:web:nfdomains.algo
 ```
 
 ### "notFound" error (404)
@@ -703,11 +808,11 @@ The DID exists but is deactivated. Check if the NFD is:
 
 ```bash
 # Resolve a DID
-curl -s http://localhost:8080/1.0/identifiers/did:nfd:patrick.algo | jq .
+curl -s http://localhost:8080/1.0/identifiers/did:nfd:nfdomains.algo | jq .
 
 # Request JSON-LD format
 curl -s -H "Accept: application/did+ld+json" \
-  http://localhost:8080/1.0/identifiers/did:nfd:patrick.algo | jq .
+  http://localhost:8080/1.0/identifiers/did:nfd:nfdomains.algo | jq .
 
 # Health check
 curl -s http://localhost:8080/health | jq .
@@ -722,10 +827,10 @@ If you also use NFD DNS and want to confirm your NFD is working on both fronts:
 
 ```bash
 # DNS resolution
-dig patrick.algo.xyz A
+dig nfdomains.algo.xyz A
 
 # DID resolution
-curl http://localhost:8080/1.0/identifiers/did:nfd:patrick.algo
+curl http://localhost:8080/1.0/identifiers/did:nfd:nfdomains.algo
 ```
 
 ---
@@ -735,7 +840,9 @@ curl http://localhost:8080/1.0/identifiers/did:nfd:patrick.algo
 | I want to... | What to do |
 |--------------|------------|
 | Resolve my DID | `curl http://localhost:8080/1.0/identifiers/did:nfd:yourname.algo` |
-| Add a website service | Set `u.service` to `[{"id":"#web","type":"LinkedDomains","serviceEndpoint":"https://yoursite.com"}]` |
+| Add a website service | Verify your domain (`v.domain`), or set `u.website` to `https://yoursite.com` |
+| Add my profile | Set `u.name`, `u.bio`, `u.avatar`, `u.banner` on your NFD -- `#profile` service is auto-generated |
+| Add social media links | Set `u.twitter`, `u.github`, etc. on your NFD -- SocialMedia services are auto-generated |
 | Add extra keys | Set `u.keys` to a JSON array of verification method objects |
 | Link my Bluesky | Verify Bluesky through NFD -- it is automatic |
 | Link other identities | Set `u.alsoKnownAs` to a JSON array of URIs |
