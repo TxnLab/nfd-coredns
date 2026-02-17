@@ -53,6 +53,23 @@ func (m *mockForwarder) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *d
 	return m.rcode, nil
 }
 
+// mockNextPlugin captures the rewritten query name for delegation tests
+type mockNextPlugin struct {
+	receivedName string
+	answer       []dns.RR
+}
+
+func (m *mockNextPlugin) Name() string { return "mock-next" }
+
+func (m *mockNextPlugin) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) (int, error) {
+	m.receivedName = r.Question[0].Name
+	msg := new(dns.Msg)
+	msg.SetReply(r)
+	msg.Answer = m.answer
+	w.WriteMsg(msg)
+	return dns.RcodeSuccess, nil
+}
+
 // testResponseWriter implements dns.ResponseWriter for testing
 type testResponseWriter struct {
 	test.ResponseWriter
@@ -281,6 +298,26 @@ func TestLookup(t *testing.T) {
 			},
 			expectedResult: Success,
 			expectedAnswer: 2,
+		},
+		{
+			name:           "root zone subdomain _psl bypasses NFD lookup",
+			qname:          "_psl.algo.",
+			qtype:          dns.TypeTXT,
+			mockHandler:    &mockNfdRRHandler{},
+			expectedResult: Delegation,
+			expectedAnswer: 0,
+		},
+		{
+			name:  "underscore segment under NFD still does NFD lookup",
+			qname: "_atproto.patrick.algo.",
+			qtype: dns.TypeTXT,
+			mockHandler: &mockNfdRRHandler{
+				rrs: []nfd.JsonRr{
+					{Name: "_atproto.patrick.algo.", Type: "TXT", RrData: []string{"did=did:plc:example"}, Ttl: 300},
+				},
+			},
+			expectedResult: Success,
+			expectedAnswer: 1,
 		},
 		{
 			name:  "root CAA record lookup - corvid.algo",
@@ -514,6 +551,56 @@ func TestLookupWithShortDomain(t *testing.T) {
 
 	assert.Equal(t, Success, result)
 	assert.Len(t, answer, 1)
+}
+
+func TestServeDNSDelegation(t *testing.T) {
+	tests := []struct {
+		name            string
+		qname           string
+		qtype           uint16
+		zoneOrigin      string
+		expectedRewrite string
+		expectedRcode   int
+	}{
+		{
+			name:            "delegation rewrites _psl.algo to _psl.algo.xyz",
+			qname:           "_psl.algo.",
+			qtype:           dns.TypeTXT,
+			zoneOrigin:      "algo.xyz.",
+			expectedRewrite: "_psl.algo.xyz.",
+			expectedRcode:   dns.RcodeSuccess,
+		},
+		{
+			name:            "delegation rewrites _dmarc.algo to _dmarc.algo.xyz",
+			qname:           "_dmarc.algo.",
+			qtype:           dns.TypeTXT,
+			zoneOrigin:      "algo.xyz.",
+			expectedRewrite: "_dmarc.algo.xyz.",
+			expectedRcode:   dns.RcodeSuccess,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockNext := &mockNextPlugin{}
+
+			nfdPlugin := &NfdPlugin{
+				Next:       mockNext,
+				NfdHandler: &mockNfdRRHandler{},
+				zoneOrigin: tt.zoneOrigin,
+			}
+
+			req := new(dns.Msg)
+			req.SetQuestion(tt.qname, tt.qtype)
+
+			w := &testResponseWriter{}
+			rcode, _ := nfdPlugin.ServeDNS(context.Background(), w, req)
+
+			assert.Equal(t, tt.expectedRcode, rcode)
+			assert.Equal(t, tt.expectedRewrite, mockNext.receivedName,
+				"Next plugin should receive rewritten query name")
+		})
+	}
 }
 
 func TestLookupNonAlgoDomain(t *testing.T) {

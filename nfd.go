@@ -8,6 +8,7 @@ package main
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/miekg/dns"
 
@@ -25,6 +26,7 @@ type NfdPlugin struct {
 	Forwarder  plugin.Handler
 	NfdHandler nfd.NfdRRHandler
 	zoneSOA    dns.RR // SOA record for negative responses (RFC 2308)
+	zoneOrigin string // Server block zone origin (e.g., "algo.xyz." or "dotalgo.io.")
 }
 
 // Result of a lookup
@@ -68,6 +70,25 @@ func (n *NfdPlugin) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.M
 	a.Answer, a.Ns, a.Extra, result = n.Lookup(ctx, state)
 	switch result {
 	case Success:
+		state.SizeAndDo(a)
+		w.WriteMsg(a)
+		return dns.RcodeSuccess, nil
+	case Delegation:
+		// Root zone subdomain (e.g., _psl.algo after rewrite from _psl.algo.xyz).
+		// Rewrite the query name back to the original zone form so the file plugin
+		// can match its zone and serve the record.
+		if n.Next != nil && n.zoneOrigin != "" {
+			delegateR := r.Copy()
+			qname := state.Name()
+			labels := dns.SplitDomainName(qname)
+			if len(labels) >= 2 {
+				prefix := strings.Join(labels[:len(labels)-1], ".")
+				delegateR.Question[0].Name = prefix + "." + n.zoneOrigin
+			}
+			log.Debugf("Delegation for %s, rewriting to %s and delegating to %s", qname, delegateR.Question[0].Name, n.Next.Name())
+			return plugin.NextOrFailure(n.Name(), n.Next, ctx, w, delegateR)
+		}
+		// Fallthrough to NoData if no next plugin or zone origin
 		state.SizeAndDo(a)
 		w.WriteMsg(a)
 		return dns.RcodeSuccess, nil
@@ -149,6 +170,14 @@ func (n *NfdPlugin) Lookup(ctx context.Context, state request.Request) ([]dns.RR
 			return n.LookupViaForwarder(ctx, state)
 		}
 	}
+	// Root zone subdomain records (like _psl, _dmarc, _acme-challenge) should be
+	// served from the embedded zone file, not looked up as NFD blockchain data.
+	// Labels starting with '_' follow DNS service record convention (RFC 8552)
+	// and are never valid NFD names (which only allow a-z0-9).
+	if strings.HasPrefix(qnameSplit[len(qnameSplit)-2], "_") {
+		return nil, nil, nil, Delegation
+	}
+
 	// Now fetch the root (and possibly segment) NFDs to determine which NFD the data
 	// is being fetched from root (directly) - root w/ nested data, or segment w or w/o further sub-data
 	// ie, patrick.algo [root], or foo.patrick.algo [contained within patrick.algo as RR value], or foo.patrick.algo [segment off patrick.algo]
