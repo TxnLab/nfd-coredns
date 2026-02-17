@@ -108,7 +108,8 @@ func setupNfd(c *caddy.Controller) error {
 				pluginCfg.algoXyzIp,
 				time.Duration(pluginCfg.cacheMins)*time.Minute,
 			),
-			zoneSOA: zoneSOA,
+			zoneSOA:    zoneSOA,
+			zoneOrigin: dnsserver.GetConfig(c).Zone,
 		}
 
 		return nfdPlugin

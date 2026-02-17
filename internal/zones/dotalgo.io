@@ -1,7 +1,7 @@
 $ORIGIN dotalgo.io.
 
 @       IN      SOA     ns1.nfdomains.dev. hostmaster.ns1.nfdomains.dev. (
-                             2025042379 ; Serial
+                             2026021701 ; Serial
                              4H         ; Refresh
                              1H         ; Retry
                              7D         ; Expire
@@ -13,3 +13,5 @@ $ORIGIN dotalgo.io.
 @ 14400 IN A 34.111.170.195
 @ 14400 IN CAA 0 issue "sectigo.com"
 @ 14400 IN CAA 0 issuewild "sectigo.com"
+@ 14400 IN CAA 0 issue "letsencrypt.org"
+
