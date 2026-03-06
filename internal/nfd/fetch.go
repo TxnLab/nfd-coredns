@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024. TxnLab Inc.
+ * Copyright (c) 2024-2026. TxnLab Inc.
  * All Rights reserved.
  */
 
@@ -154,7 +154,7 @@ func (n *nfdFetcher) FindNFDAppIDByName(ctx context.Context, nfdName string) (ui
 		if len(boxValue.Value) != 16 {
 			return 0, fmt.Errorf("box data is invalid - length:%d but should be 16 for nfd name:%s", len(boxValue.Value), nfdName)
 		}
-		//asaID := binary.BigEndian.Uint64(boxValue.Value[0:8])
+		// asaID := binary.BigEndian.Uint64(boxValue.Value[0:8])
 		appID := binary.BigEndian.Uint64(boxValue.Value[8:])
 		return appID, nil
 	}
