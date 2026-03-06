@@ -42,8 +42,8 @@ jobs:
         uses: 'google-github-actions/auth@v3'
         with:
           token_format: 'access_token'
-          workload_identity_provider: 'projects/${{ env.PROJECT_NUM }}/locations/global/workloadIdentityPools/REDACTED_WIF_POOL/providers/REDACTED_WIF_PROVIDER'
-          service_account: 'REDACTED_SERVICE_ACCOUNT'
+          workload_identity_provider: 'projects/${{ env.PROJECT_NUM }}/locations/global/workloadIdentityPools/${{ secrets.WIF_POOL }}/providers/${{ secrets.WIF_PROVIDER }}'
+          service_account: '${{ secrets.GCP_SERVICE_ACCOUNT }}'
 
       # Setup gcloud CLI
       - name: Set up Cloud SDK
@@ -77,9 +77,9 @@ jobs:
           github-token: ${{ secrets.GH_ENV_TOKEN }}
           script: |
             await github.rest.actions.createWorkflowDispatch({
-              owner: 'REDACTED_DEPLOY_OWNER',
-              repo: 'REDACTED_DEPLOY_REPO',
-              workflow_id: 'REDACTED_WORKFLOW',
-              ref: 'REDACTED_DEPLOY_REF',
+              owner: '${{ secrets.DEPLOY_REPO_OWNER }}',
+              repo: '${{ secrets.DEPLOY_REPO_NAME }}',
+              workflow_id: '${{ secrets.DEPLOY_WORKFLOW_ID }}',
+              ref: '${{ secrets.DEPLOY_REF }}',
               inputs: {'hash':'${{ github.sha }}'}
             });
