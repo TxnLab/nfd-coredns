@@ -202,9 +202,8 @@ func nfdParse(c *caddy.Controller) (*nfdPluginConfig, error) {
 		return nil, c.Errf("no node")
 	}
 	log.Infof(
-		"node: %s, token: %s, registryID: %d, algoXyzIp: %s, cacheMins: %d",
+		"node: %s, registryID: %d, algoXyzIp: %s, cacheMins: %d",
 		node,
-		token,
 		registryID,
 		algoXyzIp,
 		cacheMins,
