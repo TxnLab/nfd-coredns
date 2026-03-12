@@ -6,7 +6,6 @@ NFD (Non-Fungible Domains) brings the power of decentralized naming to standard 
 
 **Your NFD becomes a real, working domain:**
 - `patrick.algo.xyz` - accessible via standard DNS
-- `patrick.dotalgo.io` - alternative domain suffix
 
 This means you can point your NFD to a website, receive email, configure SSL certificates, and more - all with records you control on-chain.
 
@@ -412,7 +411,7 @@ You should see your configured records in the ANSWER SECTION of the response.
 
 **Getting NXDOMAIN?**
 - Ensure your NFD exists and is not expired
-- Verify you're querying `*.algo.xyz` or `*.dotalgo.io`
+- Verify you're querying `*.algo.xyz`
 
 **Email not working?**
 - MX records must have the priority number before the hostname
