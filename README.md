@@ -123,8 +123,7 @@ go test -v -run TestGetNfdRRs ./internal/nfd
 │   │   ├── dnsjson.go       # JSON DNS record → DNS RR conversion
 │   │   └── misc.go          # NFD name validation
 │   └── zones/
-│       ├── algo.xyz          # Embedded root zone file for algo.xyz
-│       └── dotalgo.io        # Embedded root zone file for dotalgo.io
+│       └── algo.xyz          # Embedded root zone file for algo.xyz
 └── docs/
     └── NFD_DNS_USER_GUIDE.md # User guide for configuring DNS records on NFDs
 ```
@@ -149,17 +148,14 @@ The CoreDNS plugin chain processes requests in this order:
 
 `rewrite` → `nfd` → `cache` → `file` (embedded zones) → `forward` (Cloudflare DNS)
 
-- **rewrite**: Strips/restores the `.xyz` or `.io` TLD suffix
+- **rewrite**: Strips/restores the `.xyz` TLD suffix
 - **nfd**: Resolves NFD names from blockchain data
 - **file**: Serves root zone queries (NS, SOA) from embedded zone files
 - **forward**: Resolves external CNAME targets via Cloudflare `1.1.1.1`
 
-## Zones
+## Zone
 
-The plugin serves two zones, both compiled into the binary via `go:embed`:
-
-- **algo.xyz** — Primary zone (e.g., `patrick.algo.xyz`)
-- **dotalgo.io** — Alternate zone (e.g., `patrick.dotalgo.io`)
+The plugin serves the `algo.xyz` zone, compiled into the binary via `go:embed`.
 
 ## License
 

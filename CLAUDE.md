@@ -48,7 +48,7 @@ docker buildx build --platform linux/amd64 -t nfddns:latest .
 | `internal/nfd/nfdrr.go` | `NfdRRHandler` - manages NFD lookups with LRU caching |
 | `internal/nfd/fetch.go` | `NfdFetcher` - queries Algorand blockchain for NFD data |
 | `internal/nfd/dnsjson.go` | Converts NFD JSON DNS data to DNS RR records |
-| `internal/zones/` | Embedded root zone files for algo.xyz and dotalgo.io |
+| `internal/zones/` | Embedded root zone file for algo.xyz |
 
 ### Key Interfaces
 
