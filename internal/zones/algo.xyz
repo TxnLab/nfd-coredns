@@ -1,7 +1,7 @@
 $ORIGIN algo.xyz.
 
 @       IN      SOA     ns1.nfdomains.dev. hostmaster.ns1.nfdomains.dev. (
-                             2026031301 ; Serial
+                             2026031302 ; Serial
                              4H         ; Refresh
                              1H         ; Retry
                              7D         ; Expire
@@ -12,9 +12,9 @@ $ORIGIN algo.xyz.
 
 @ 14400 IN A 34.111.170.195
 @ 14400 IN CAA 0 issue "sectigo.com"
-@ 14400 IN CAA 0 issuewild "sectigo.com"
 @ 14400 IN CAA 0 issue "letsencrypt.org"
-@ 14400 IN CAA 0 issue "pki.goog"
+@ 14400 IN CAA 0 issuewild "sectigo.com"
+@ 14400 IN CAA 0 issuewild "pki.goog"
 
 _acme-challenge 14400 IN CNAME ad18d7ed-b148-4c81-80fc-42b5510aaaae.10.authorize.certificatemanager.goog.
 
