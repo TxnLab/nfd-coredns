@@ -44,6 +44,20 @@ TTL values are clamped between 60 and 86,400 seconds (default: 300s).
 - **Expiration handling**: Expired NFDs return a default A record pointing to a configurable IP address.
 - **Two-level caching**: NFD properties and DNS RR sets are cached separately in TTL-based LRU caches (50K entries each).
 
+### V2 vs V3 Contract Handling
+
+NFDs exist at different smart contract versions on the Algorand blockchain. The plugin handles them differently:
+
+- **V3+ NFDs** (contract version ≥ 3.0) can store explicit DNS records as JSON in their on-chain properties. When present, these are parsed and served as real DNS responses (A, AAAA, CNAME, MX, etc.).
+
+- **V2 NFDs** do not support explicit DNS records. Instead, the plugin returns a synthetic A record pointing to the `algoxyzip` IP address (default: `34.8.101.7`). A web service at that IP handles HTTP redirects — if the NFD owner has configured a forwarding URL, the service redirects there; otherwise it redirects to the NFD's landing page on `app.nf.domains`.
+
+- **Expired or unowned V3 NFDs** are treated the same as V2 — their explicit DNS properties are ignored and the fallback A record redirect is returned instead.
+
+- **V2 NFDs with V3-only properties** (e.g., `dns` or `blueskydid` set on a pre-V3 contract) are flagged as incompatible and return an error.
+
+The registry lookup itself also has version tiers: the plugin first attempts a V2 box-based lookup, falling back to the legacy V1 logic-signature approach if the box isn't found.
+
 ## Configuration
 
 The plugin is configured in a CoreDNS `Corefile`:
