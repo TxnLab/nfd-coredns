@@ -26,7 +26,7 @@ jobs:
           goarch: ${{ matrix.goarch }}
           ldflags: "-s -w -X github.com/coredns/coredns/coremain.GitCommit=${{ github.ref_name }}"
           extra_files: LICENSE README.md docs
-          goversion: '1.25'
+          goversion: '1.26'
           build_flags: "-tags=goexperiment.jsonv2"
   docker:
     runs-on: ubuntu-latest

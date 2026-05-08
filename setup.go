@@ -57,6 +57,7 @@ func setupNfd(c *caddy.Controller) error {
 	if err != nil {
 		return plugin.Error(pluginName, err)
 	}
+	serverZone := dnsserver.GetConfig(c).Zone
 	dnsserver.GetConfig(c).AddPlugin(func(next plugin.Handler) plugin.Handler {
 		var (
 			zoneConfig = map[string]*file.Zone{}
@@ -78,8 +79,8 @@ func setupNfd(c *caddy.Controller) error {
 			}
 			zoneConfig[origin] = parsedZone
 
-			// Extract SOA from algo.xyz zone for use in negative responses
-			if origin == "algo.xyz." {
+			// Extract SOA from this server block's zone for use in negative responses
+			if origin == serverZone {
 				if apex, apexErr := parsedZone.ApexIfDefined(); apexErr == nil && len(apex) > 0 {
 					zoneSOA = apex[0] // SOA is first record
 				}
