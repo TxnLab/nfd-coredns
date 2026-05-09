@@ -34,9 +34,41 @@ DNS records are stored as JSON in your NFD. Each record has these fields:
 
 ### Name Field
 
-- `@` - Your domain itself (e.g., `patrick.algo.xyz`)
-- `www.@` - A subdomain (becomes `www.patrick.algo.xyz`)
-- `mail.@` - Another subdomain (becomes `mail.patrick.algo.xyz`)
+The `name` field says *where* the record applies inside your NFD's DNS zone. **All records are rooted under your NFD** — you have DNS authority only over your own NFD and its subnames, so any name you store is always interpreted as something inside your NFD's subtree. Names that reference anything outside that subtree are re-rooted under your NFD (see "The trailing-dot trap" and "Cross-root references" below).
+
+> The examples in the tables below assume your NFD is `patrick.algo`. Substitute your own NFD wherever you see `patrick.algo` / `patrick.algo.xyz`.
+
+**Recommended (canonical) forms:**
+
+| You write | It serves |
+|-----------|-----------|
+| `@` | Your NFD itself (e.g., `patrick.algo.xyz`) |
+| `www.@` | A subdomain (e.g., `www.patrick.algo.xyz`) |
+| `_test._tcp.@` | An underscore-prefixed service record (SRV, etc.) |
+
+The `@` is the standard DNS shorthand for "this zone's origin". Use the `.@` suffix for any subname, including SRV-style names like `_<service>._<proto>.@`.
+
+**Other accepted forms** (all resolve under your NFD `patrick.algo`):
+
+| You write | It serves |
+|-----------|-----------|
+| `www` | `www.patrick.algo.xyz` (bare label, no dot) |
+| `www.patrick.algo` | `www.patrick.algo.xyz` (FQDN, missing trailing dot) |
+| `www.patrick.algo.` | `www.patrick.algo.xyz` (canonical FQDN) |
+| `www.patrick.algo.xyz` | `www.patrick.algo.xyz` (legacy mirror form, `.xyz` stripped) |
+| `www.patrick.dotalgo.io` | `www.patrick.algo.xyz` (alt mirror form) |
+
+**The trailing-dot trap (and how it's handled):**
+
+In standard DNS zone files, a trailing dot means "fully qualified — don't append the origin". In NFD context, that's almost always a typo: your NFD has no authority outside its own subtree, so a name like `_test._tcp.` (rooted at the DNS root) couldn't serve anything as written.
+
+To avoid this footgun, any trailing-dot name that **isn't** inside your NFD's zone (i.e., doesn't end in `.<your-nfd>.`) is treated as a relative subname and re-rooted under your NFD. So `_test._tcp.` and `_test._tcp` and `_test._tcp.@` all serve as `_test._tcp.patrick.algo.xyz`.
+
+**Cross-root references are also re-rooted:**
+
+The same scope rule applies even to fully-qualified names that reference *other* NFDs. If your NFD is `patrick.algo` and you store a record with name `evil.someone-else.algo.`, you do not somehow get DNS authority over `someone-else.algo` — that name gets re-rooted under your NFD, serving as `evil.someone-else.algo.patrick.algo.xyz`. The same applies to the `.algo.xyz` and `.dotalgo.io` mirror forms when they reference a different NFD root.
+
+> **Tip:** Use the `.@` suffix form. It makes your intent explicit and works regardless of which NFD or segment the records end up loaded from.
 
 ### TTL (Time to Live)
 

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/algorand/go-algorand-sdk/v2/client/v2/algod"
@@ -70,8 +71,25 @@ func (n *nfdRRHandler) GetNfdRRs(ctx context.Context, log clog.P, qname string) 
 		// ie: mail.patrick.algo -  segmentBasename would be 'mail'
 		// it could be a segment, or a record, but either way the segment HAS to be looked up to determine
 		// if it exists, and if so, does it have the same owner.
+		//
+		// Note: leading underscore-prefix labels (RFC 8552, e.g. _hayai._tcp)
+		// don't shift this segment-name window — those labels are absorbed at
+		// match time inside the segment's records (stored as e.g. "_hayai._tcp.@").
+		// They're only used by the depth check below, which discounts them so
+		// that _<svc>._<proto>.<segment>.<root>.algo can resolve normally.
+		// Names that look like NFD names but aren't (e.g., "_tcp.foo.algo" when
+		// no real segment "_tcp" exists) get filtered out by isValidNFDName
+		// inside fetchNFDs and silently skipped.
 	}
-	if len(qnameSplit) > 4 {
+	// RFC 8552: leading '_'-prefixed labels are service-binding prefixes (SRV,
+	// DKIM, etc.), not NFD segments — underscores aren't valid in NFD names.
+	// Don't count them against the depth limit, so queries like
+	// _test._tcp.bar.foo.algo can resolve against a segmented NFD.
+	underscorePrefixCount := 0
+	for underscorePrefixCount < len(qnameSplit) && strings.HasPrefix(qnameSplit[underscorePrefixCount], "_") {
+		underscorePrefixCount++
+	}
+	if len(qnameSplit)-underscorePrefixCount > 4 {
 		// ie: don't allow more than a single RR name off of segment ?
 		// key.segment.patrick.algo
 		return nil, ErrNfdTooManySegments

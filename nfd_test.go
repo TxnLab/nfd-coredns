@@ -162,6 +162,143 @@ func TestServeDNS(t *testing.T) {
 	}
 }
 
+// TestServeDNSNoDataRewritesBack verifies that a NoData (NFD-not-found) response
+// against a *.algo qname is rewritten back to the server-block zone form before
+// being delegated, so the file plugin can match its embedded zone and produce
+// NXDOMAIN+SOA.
+func TestServeDNSNoDataRewritesBack(t *testing.T) {
+	tests := []struct {
+		name           string
+		qname          string
+		zoneOrigin     string
+		expectDelegate string // empty means expect NameError (no delegation), no rewrite
+	}{
+		{
+			name:           "dotalgo.io: notfound.algo rewrites to notfound.dotalgo.io",
+			qname:          "notfound.algo.",
+			zoneOrigin:     "dotalgo.io.",
+			expectDelegate: "notfound.dotalgo.io.",
+		},
+		{
+			name:           "algo.xyz: notfound.algo rewrites to notfound.algo.xyz",
+			qname:          "notfound.algo.",
+			zoneOrigin:     "algo.xyz.",
+			expectDelegate: "notfound.algo.xyz.",
+		},
+		{
+			name:           "deep label: _acme-challenge.trilemma.algo (NFD missing) rewrites to *.dotalgo.io",
+			qname:          "_acme-challenge.trilemma.algo.",
+			zoneOrigin:     "dotalgo.io.",
+			expectDelegate: "_acme-challenge.trilemma.dotalgo.io.",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			next := &mockNextPlugin{}
+			nfdPlugin := &NfdPlugin{
+				Next: next,
+				NfdHandler: &mockNfdRRHandler{
+					err: nfd.ErrNfdNotFound,
+				},
+				zoneOrigin: tt.zoneOrigin,
+			}
+
+			req := new(dns.Msg)
+			req.SetQuestion(tt.qname, dns.TypeA)
+			w := &testResponseWriter{}
+
+			_, err := nfdPlugin.ServeDNS(context.Background(), w, req)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectDelegate, next.receivedName, "delegated query should be rewritten back to zone-origin form")
+		})
+	}
+}
+
+// TestServeDNSNoDataApexFallthrough verifies that apex/non-.algo qnames (which
+// arrive un-rewritten because the rewrite rule doesn't match the bare zone) are
+// delegated as-is so the file plugin can serve their apex records.
+func TestServeDNSNoDataApexFallthrough(t *testing.T) {
+	next := &mockNextPlugin{}
+	nfdPlugin := &NfdPlugin{
+		Next:       next,
+		NfdHandler: &mockNfdRRHandler{},
+		zoneOrigin: "algo.xyz.",
+	}
+
+	req := new(dns.Msg)
+	req.SetQuestion("algo.xyz.", dns.TypeSOA)
+	w := &testResponseWriter{}
+
+	_, err := nfdPlugin.ServeDNS(context.Background(), w, req)
+	require.NoError(t, err)
+	// Apex qname doesn't end in ".algo.", so no rewrite should happen.
+	assert.Equal(t, "algo.xyz.", next.receivedName)
+}
+
+// TestServeDNSNameErrorWritesResponse verifies the NameError path writes an
+// NXDOMAIN response with the SOA in the authority section, instead of falling
+// through to ServerFailure.
+func TestServeDNSNameErrorWritesResponse(t *testing.T) {
+	soa, err := dns.NewRR("dotalgo.io. 14400 IN SOA ns1.dotalgo.io. hostmaster.dotalgo.io. 1 4h 1h 7d 4h")
+	require.NoError(t, err)
+
+	nfdPlugin := &NfdPlugin{
+		NfdHandler: &mockNfdRRHandler{
+			rrs: []nfd.JsonRr{
+				{Name: "trilemma.algo.", Type: "A", RrData: []string{"1.2.3.4"}, Ttl: 300},
+			},
+		},
+		zoneSOA:    soa,
+		zoneOrigin: "dotalgo.io.",
+	}
+
+	req := new(dns.Msg)
+	req.SetQuestion("_acme-challenge.trilemma.algo.", dns.TypeA)
+	w := &testResponseWriter{}
+
+	rcode, err := nfdPlugin.ServeDNS(context.Background(), w, req)
+	require.NoError(t, err)
+	assert.Equal(t, dns.RcodeNameError, rcode)
+	require.NotNil(t, w.msg, "should have written a response")
+	assert.Equal(t, dns.RcodeNameError, w.msg.Rcode)
+	assert.Empty(t, w.msg.Answer)
+	require.Len(t, w.msg.Ns, 1, "authority section should contain SOA")
+	_, ok := w.msg.Ns[0].(*dns.SOA)
+	assert.True(t, ok, "authority should be SOA RR")
+}
+
+// TestServeDNSNoDataReturnsNODATA verifies the NODATA path (name exists, type
+// doesn't): the response is NOERROR, empty answer, and SOA in authority.
+func TestServeDNSNoDataReturnsNODATA(t *testing.T) {
+	soa, err := dns.NewRR("dotalgo.io. 14400 IN SOA ns1.dotalgo.io. hostmaster.dotalgo.io. 1 4h 1h 7d 4h")
+	require.NoError(t, err)
+
+	nfdPlugin := &NfdPlugin{
+		NfdHandler: &mockNfdRRHandler{
+			rrs: []nfd.JsonRr{
+				{Name: "trilemma.algo.", Type: "A", RrData: []string{"1.2.3.4"}, Ttl: 300},
+			},
+		},
+		zoneSOA:    soa,
+		zoneOrigin: "dotalgo.io.",
+	}
+
+	req := new(dns.Msg)
+	req.SetQuestion("trilemma.algo.", dns.TypeAAAA) // name exists, AAAA doesn't
+	w := &testResponseWriter{}
+
+	rcode, err := nfdPlugin.ServeDNS(context.Background(), w, req)
+	require.NoError(t, err)
+	assert.Equal(t, dns.RcodeSuccess, rcode)
+	require.NotNil(t, w.msg)
+	assert.Equal(t, dns.RcodeSuccess, w.msg.Rcode)
+	assert.Empty(t, w.msg.Answer)
+	require.Len(t, w.msg.Ns, 1)
+	_, ok := w.msg.Ns[0].(*dns.SOA)
+	assert.True(t, ok, "authority should be SOA RR")
+}
+
 func TestLookup(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -220,13 +357,43 @@ func TestLookup(t *testing.T) {
 			expectedAnswer: 1,
 		},
 		{
-			name:  "no records found",
+			// NFD fetched successfully but has no records at all -> name doesn't
+			// exist in this NFD's zone -> NXDOMAIN (RFC 1034/2308).
+			name:  "NFD has zero records returns NXDOMAIN",
 			qname: "test.algo.",
 			qtype: dns.TypeA,
 			mockHandler: &mockNfdRRHandler{
 				rrs: []nfd.JsonRr{},
 			},
-			expectedResult: NoData,
+			expectedResult: NameError,
+			expectedAnswer: 0,
+		},
+		{
+			// NFD fetched successfully, qname has no records of any type
+			// (records exist for a sibling name) -> NXDOMAIN.
+			name:  "NFD has records but qname missing returns NXDOMAIN",
+			qname: "_acme-challenge.trilemma.algo.",
+			qtype: dns.TypeA,
+			mockHandler: &mockNfdRRHandler{
+				rrs: []nfd.JsonRr{
+					{Name: "trilemma.algo.", Type: "A", RrData: []string{"1.2.3.4"}, Ttl: 300},
+				},
+			},
+			expectedResult: NameError,
+			expectedAnswer: 0,
+		},
+		{
+			// NFD fetched successfully, qname exists but with a different type
+			// (A record exists, AAAA queried) -> NODATA (Success with empty answer).
+			name:  "NFD has different type returns NODATA",
+			qname: "trilemma.algo.",
+			qtype: dns.TypeAAAA,
+			mockHandler: &mockNfdRRHandler{
+				rrs: []nfd.JsonRr{
+					{Name: "trilemma.algo.", Type: "A", RrData: []string{"1.2.3.4"}, Ttl: 300},
+				},
+			},
+			expectedResult: Success,
 			expectedAnswer: 0,
 		},
 		{
@@ -320,6 +487,18 @@ func TestLookup(t *testing.T) {
 			expectedAnswer: 1,
 		},
 		{
+			name:  "SRV-style two-label underscore prefix routes to NFD lookup",
+			qname: "_test._tcp.foo.algo.",
+			qtype: dns.TypeSRV,
+			mockHandler: &mockNfdRRHandler{
+				rrs: []nfd.JsonRr{
+					{Name: "_test._tcp.foo.algo.", Type: "SRV", RrData: []string{"10 5 8883 broker.foo.algo."}, Ttl: 300},
+				},
+			},
+			expectedResult: Success,
+			expectedAnswer: 1,
+		},
+		{
 			name:  "root CAA record lookup - corvid.algo",
 			qname: "corvid.algo.",
 			qtype: dns.TypeCAA,
@@ -330,6 +509,52 @@ func TestLookup(t *testing.T) {
 			},
 			expectedResult: Success,
 			expectedAnswer: 1,
+		},
+		{
+			// NS query for an existing NFD apex returns NODATA (Success with
+			// empty answer). NFDs are not delegated subzones — they cannot
+			// define their own NS records — but the apex name *exists*, so
+			// the right answer is NOERROR/NODATA, not NXDOMAIN.
+			name:  "NS query on existing NFD apex returns NODATA",
+			qname: "trilemma.algo.",
+			qtype: dns.TypeNS,
+			mockHandler: &mockNfdRRHandler{
+				rrs: []nfd.JsonRr{
+					{Name: "trilemma.algo.", Type: "A", RrData: []string{"1.2.3.4"}, Ttl: 300},
+				},
+			},
+			expectedResult: Success,
+			expectedAnswer: 0,
+		},
+		{
+			// NS query for a name that doesn't exist anywhere in the NFD's
+			// records is NXDOMAIN — same NXDOMAIN/NODATA decision as any
+			// other qtype. Previously this returned NODATA unconditionally,
+			// which was inconsistent with the per-record check used for
+			// other types.
+			name:  "NS query on non-existent NFD subname returns NXDOMAIN",
+			qname: "nonexistent.trilemma.algo.",
+			qtype: dns.TypeNS,
+			mockHandler: &mockNfdRRHandler{
+				rrs: []nfd.JsonRr{
+					{Name: "trilemma.algo.", Type: "A", RrData: []string{"1.2.3.4"}, Ttl: 300},
+				},
+			},
+			expectedResult: NameError,
+			expectedAnswer: 0,
+		},
+		{
+			// NS query for an existing subname (different type) returns NODATA.
+			name:  "NS query on existing NFD subname returns NODATA",
+			qname: "www.trilemma.algo.",
+			qtype: dns.TypeNS,
+			mockHandler: &mockNfdRRHandler{
+				rrs: []nfd.JsonRr{
+					{Name: "www.trilemma.algo.", Type: "A", RrData: []string{"1.2.3.4"}, Ttl: 300},
+				},
+			},
+			expectedResult: Success,
+			expectedAnswer: 0,
 		},
 	}
 

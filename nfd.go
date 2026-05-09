@@ -78,14 +78,9 @@ func (n *NfdPlugin) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.M
 		// Rewrite the query name back to the original zone form so the file plugin
 		// can match its zone and serve the record.
 		if n.Next != nil && n.zoneOrigin != "" {
-			delegateR := r.Copy()
 			qname := state.Name()
-			labels := dns.SplitDomainName(qname)
-			if len(labels) >= 2 {
-				prefix := strings.Join(labels[:len(labels)-1], ".")
-				delegateR.Question[0].Name = prefix + "." + n.zoneOrigin
-			}
-			log.Debugf("Delegation for %s, rewriting to %s and delegating to %s", qname, delegateR.Question[0].Name, n.Next.Name())
+			delegateR, delegatedName := n.rewriteToZoneOrigin(r, qname)
+			log.Debugf("Delegation for %s, rewriting to %s and delegating to %s", qname, delegatedName, n.Next.Name())
 			return plugin.NextOrFailure(n.Name(), n.Next, ctx, w, delegateR)
 		}
 		// Fallthrough to NoData if no next plugin or zone origin
@@ -99,11 +94,20 @@ func (n *NfdPlugin) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.M
 			w.WriteMsg(a)
 			return dns.RcodeSuccess, nil
 		}
-		log.Debugf("No data for %s (%s), delegating to next plugin:%s", state.Name(), state.Type(), n.Next.Name())
-		return plugin.NextOrFailure(n.Name(), n.Next, ctx, w, r)
+		// For NFD-style qnames (rewritten to *.algo, e.g. NFD-not-found), rewrite
+		// the question back to the server-block zone form so the file plugin can
+		// match its embedded zone and produce a proper NXDOMAIN+SOA. Apex
+		// fall-throughs (algo.xyz., dotalgo.io.) keep their original qname.
+		qname := state.Name()
+		delegateR, delegatedName := n.rewriteToZoneOrigin(r, qname)
+		log.Debugf("No data for %s (%s), delegating to next plugin:%s as %s", qname, state.Type(), n.Next.Name(), delegatedName)
+		return plugin.NextOrFailure(n.Name(), n.Next, ctx, w, delegateR)
 	case NameError:
-		log.Warningf("name error for %s, returning RcodeNameError (NXDomain)", state.Name())
+		log.Debugf("name error for %s, returning RcodeNameError (NXDomain)", state.Name())
 		a.Rcode = dns.RcodeNameError
+		state.SizeAndDo(a)
+		w.WriteMsg(a)
+		return dns.RcodeNameError, nil
 	case ServerFailure:
 		log.Warningf("server failure for %s (ServFail)", state.Name())
 		a.Rcode = dns.RcodeServerFailure
@@ -116,6 +120,27 @@ func (n *NfdPlugin) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.M
 	}
 	// Unknown result...
 	return dns.RcodeServerFailure, nil
+}
+
+// rewriteToZoneOrigin returns a copy of r with the question's qname rewritten
+// from the internal *.algo form back to the server-block zone origin (e.g.,
+// *.algo.xyz or *.dotalgo.io), so a downstream plugin (e.g. file) can match
+// its embedded zone. Returns r unchanged and the original qname when there is
+// nothing to rewrite (no zoneOrigin configured, qname not under .algo., or
+// qname has fewer than two labels). The returned name is also returned
+// separately so callers can log it without poking at Question[0] themselves.
+func (n *NfdPlugin) rewriteToZoneOrigin(r *dns.Msg, qname string) (*dns.Msg, string) {
+	if n.zoneOrigin == "" || !strings.HasSuffix(qname, ".algo.") {
+		return r, qname
+	}
+	labels := dns.SplitDomainName(qname)
+	if len(labels) < 2 {
+		return r, qname
+	}
+	newName := strings.Join(labels[:len(labels)-1], ".") + "." + n.zoneOrigin
+	out := r.Copy()
+	out.Question[0].Name = newName
+	return out, newName
 }
 
 func (n *NfdPlugin) Lookup(ctx context.Context, state request.Request) ([]dns.RR, []dns.RR, []dns.RR, Result) {
@@ -195,14 +220,21 @@ func (n *NfdPlugin) Lookup(ctx context.Context, state request.Request) ([]dns.RR
 		return nil, nil, nil, ServerFailure
 	}
 
-	// NS queries on NFD subdomains return Success with empty answer + SOA in authority
-	// Per RFC 2308: existing name with no records of requested type
-	// NFDs are not delegated subzones and cannot define their own NS records
+	// NS queries on NFD subdomains never return NS records (NFDs are not
+	// delegated subzones and cannot define their own NS records). Per RFC 2308,
+	// the response must include the zone's SOA in the authority section so the
+	// resolver can negative-cache. The result code mirrors the per-record
+	// NXDOMAIN/NODATA decision below: existing name -> NODATA (NOERROR),
+	// missing name -> NXDOMAIN.
 	if qtype == dns.TypeNS {
+		var soaNs []dns.RR
 		if n.zoneSOA != nil {
-			return nil, []dns.RR{n.zoneSOA}, nil, Success
+			soaNs = []dns.RR{n.zoneSOA}
 		}
-		return nil, nil, nil, NoData
+		if nfd.NameExistsInJsonRRs(mergedJsonRrs, qname) {
+			return nil, soaNs, nil, Success
+		}
+		return nil, soaNs, nil, NameError
 	}
 
 	// If we aren't asking for a CNAME then check for one to see if we need
@@ -250,12 +282,20 @@ func (n *NfdPlugin) Lookup(ctx context.Context, state request.Request) ([]dns.RR
 		return nil, nil, nil, ServerFailure
 	}
 	if len(rrs) == 0 {
-		return nil, nil, nil, NoData
+		// NFD was fetched successfully but no record matches name+type.
+		// Per RFC 2308: respond authoritatively with SOA in authority section.
+		// If the qname has any record (different type) it's NODATA (NOERROR);
+		// otherwise the name doesn't exist in this NFD's zone -> NXDOMAIN.
+		var soaNs []dns.RR
+		if n.zoneSOA != nil {
+			soaNs = []dns.RR{n.zoneSOA}
+		}
+		if nfd.NameExistsInJsonRRs(mergedJsonRrs, qname) {
+			return nil, soaNs, nil, Success
+		}
+		return nil, soaNs, nil, NameError
 	}
 	answerRrs = append(answerRrs, rrs...)
-	if len(answerRrs) == 0 {
-		return answerRrs, authorityRrs, additionalRrs, NoData
-	}
 
 	return answerRrs, authorityRrs, additionalRrs, Success
 }

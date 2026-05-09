@@ -288,6 +288,104 @@ func TestGetNfdRRs(t *testing.T) {
 			},
 		},
 		{
+			name:  "SRV record on root NFD (RFC 8552 underscore prefix)",
+			qname: "_test._tcp.foo.algo.",
+			nfdRRHandler: func(handler *nfdRRHandler) {
+				handler.nfdFetcher = &mockNfdFetcher{
+					fetchFunc: func(ctx context.Context, log clog.P, names []string) (map[string]Properties, error) {
+						rootDns := []JsonRr{
+							{
+								Name:   "_test._tcp.@",
+								RrData: []string{"10 5 8883 broker.foo.algo."},
+								Ttl:    300,
+								Type:   "SRV",
+							},
+						}
+						rootJson, _ := json.Marshal(rootDns)
+						return map[string]Properties{
+							"foo.algo": {
+								Internal:    map[string]string{"name": "foo.algo", "owner": "owner1"},
+								UserDefined: map[string]string{"dns": string(rootJson)},
+							},
+						}, nil
+					},
+				}
+			},
+			expectedError: nil,
+			expectedRRs: []JsonRr{
+				{Name: "_test._tcp.foo.algo.", RrData: []string{"10 5 8883 broker.foo.algo."}, Ttl: 300, Type: "SRV"},
+			},
+		},
+		{
+			name:  "SRV record on segmented NFD (underscore prefix doesn't trip depth limit)",
+			qname: "_test._tcp.bar.foo.algo.",
+			nfdRRHandler: func(handler *nfdRRHandler) {
+				handler.nfdFetcher = &mockNfdFetcher{
+					fetchFunc: func(ctx context.Context, log clog.P, names []string) (map[string]Properties, error) {
+						rootJson, _ := json.Marshal([]JsonRr{})
+						segmentDns := []JsonRr{
+							{
+								Name:   "_test._tcp.@",
+								RrData: []string{"10 5 8883 broker.bar.foo.algo."},
+								Ttl:    300,
+								Type:   "SRV",
+							},
+						}
+						segmentJson, _ := json.Marshal(segmentDns)
+						return map[string]Properties{
+							"foo.algo": {
+								Internal:    map[string]string{"name": "foo.algo", "owner": "owner1"},
+								UserDefined: map[string]string{"dns": string(rootJson)},
+							},
+							"bar.foo.algo": {
+								Internal:    map[string]string{"name": "bar.foo.algo", "owner": "owner1"},
+								UserDefined: map[string]string{"dns": string(segmentJson)},
+							},
+						}, nil
+					},
+				}
+			},
+			expectedError: nil,
+			expectedRRs: []JsonRr{
+				{Name: "_test._tcp.bar.foo.algo.", RrData: []string{"10 5 8883 broker.bar.foo.algo."}, Ttl: 300, Type: "SRV"},
+			},
+		},
+		{
+			name:  "SRV on segmented NFD with split ownership rejected",
+			qname: "_test._tcp.bar.foo.algo.",
+			nfdRRHandler: func(handler *nfdRRHandler) {
+				handler.nfdFetcher = &mockNfdFetcher{
+					fetchFunc: func(ctx context.Context, log clog.P, names []string) (map[string]Properties, error) {
+						dnsData := []JsonRr{
+							{Name: "_test._tcp.@", RrData: []string{"10 5 8883 broker.bar.foo.algo."}, Ttl: 300, Type: "SRV"},
+						}
+						dnsJson, _ := json.Marshal(dnsData)
+						return map[string]Properties{
+							"foo.algo": {
+								Internal:    map[string]string{"name": "foo.algo", "owner": "owner1"},
+								UserDefined: map[string]string{"dns": string(dnsJson)},
+							},
+							"bar.foo.algo": {
+								Internal:    map[string]string{"name": "bar.foo.algo", "owner": "owner2"},
+								UserDefined: map[string]string{"dns": string(dnsJson)},
+							},
+						}, nil
+					},
+				}
+			},
+			expectedError: ErrNfdSplitOwnership,
+			expectedRRs:   nil,
+		},
+		{
+			name:  "too many segments still rejected when leading underscores can't absorb the depth",
+			qname: "_a._b.w.x.y.z.algo.",
+			nfdRRHandler: func(handler *nfdRRHandler) {
+				// No fetch — the depth check trips before any lookup.
+			},
+			expectedError: ErrNfdTooManySegments,
+			expectedRRs:   nil,
+		},
+		{
 			name:  "regular segment fetch",
 			qname: "defi.nfdomains.algo.",
 			nfdRRHandler: func(handler *nfdRRHandler) {

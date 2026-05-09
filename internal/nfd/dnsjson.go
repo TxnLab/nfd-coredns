@@ -64,6 +64,18 @@ func nfdToJsonRRs(_ context.Context, nfdProps Properties) ([]JsonRr, error) {
 	return dnsResult, nil
 }
 
+// NameExistsInJsonRRs reports whether any record (any type) matches the given name,
+// using the same case-insensitive comparison as DnsRRsFromJsonRRs. Used to distinguish
+// NXDOMAIN (no records of any type for the name) from NODATA (name exists, type doesn't).
+func NameExistsInJsonRRs(jsonRecords []JsonRr, queryName string) bool {
+	for _, jsonRecord := range jsonRecords {
+		if strings.EqualFold(jsonRecord.Name, queryName) {
+			return true
+		}
+	}
+	return false
+}
+
 // DnsRRsFromJsonRRs returns RR's that match the given name and type (from pre-merged root/segment data)
 func DnsRRsFromJsonRRs(jsonRecords []JsonRr, queryName string, rrType uint16) ([]dns.RR, error) {
 	var (
@@ -109,34 +121,67 @@ func DnsRRsFromJsonRRs(jsonRecords []JsonRr, queryName string, rrType uint16) ([
 	return rrs, nil
 }
 
+// ConvertOriginRefs rewrites the Name field of each RR so that every record is
+// rooted under the NFD's own FQDN. An NFD has DNS authority only over its own
+// subtree (the NFD FQDN itself and names ending in ".<fqdn>."); anything else,
+// including cross-root references like "test.bar.algo." stored on foo.algo, is
+// unservable as written and is re-rooted under the NFD as a relative subname.
+//
+// Accepted name forms that resolve as canonical, in-scope records:
+//   - "@"                       → the NFD itself (e.g., foo.algo.)
+//   - "<sub>.@"                 → "<sub>.<fqdn>." (e.g., _test._tcp.foo.algo.)
+//   - "<sub>.<fqdn>[.]"         → kept as canonical FQDN
+//   - "<sub>.<fqdn-mirror>[.]"  → mirror normalized to canonical form
+//
+// where <fqdn-mirror> is the .algo.xyz or .dotalgo.io alias of <fqdn>. The
+// trailing dot is optional in all cases and added if missing.
+//
+// Anything else is treated as a relative subname under the NFD: bare labels
+// ("www"), trailing-dot footguns at the DNS root ("_test._tcp."), and
+// cross-root references ("test.bar.algo." stored on foo.algo). Any trailing
+// dot on the original name is stripped before re-rooting.
 func ConvertOriginRefs(_ context.Context, fqdn string, rrs []JsonRr) {
-	// walk the rr's and if name is @ - switch out to the fqdn
+	nfdFqdn := dns.Fqdn(fqdn)     // e.g., "foo.algo."
+	nfdSubSuffix := "." + nfdFqdn // e.g., ".foo.algo."
 	for i, rr := range rrs {
-		if rr.Name == "@" {
-			rrs[i].Name = dns.Fqdn(fqdn)
-		} else {
-			if strings.HasSuffix(rr.Name, ".@") {
-				// convert foo.@ into foo.{domain}
-				rrs[i].Name = rr.Name[:len(rr.Name)-1] + dns.Fqdn(fqdn)
-			}
-			if strings.HasSuffix(rr.Name, ".algo.xyz") {
-				// trim off the .xyz to turn into just .algo
-				rrs[i].Name = strings.TrimSuffix(rr.Name, "xyz") // xxx.algo.xyz. -> xxx.algo.
-			}
-			if strings.HasSuffix(rr.Name, ".dotalgo.io") {
-				// replace .dotalgo.io with just .algo
-				rrs[i].Name = strings.TrimSuffix(rr.Name, ".dotalgo.io") + ".algo."
-			}
-			if !strings.HasSuffix(rrs[i].Name, ".") {
-				if strings.HasSuffix(rrs[i].Name, ".algo") {
-					// Already fully qualified (e.g., "www.patrick.algo"), just needs trailing dot
-					rrs[i].Name += "."
-				} else {
-					// Bare/relative label (e.g., "grafana") - make relative to FQDN
-					rrs[i].Name = rrs[i].Name + "." + dns.Fqdn(fqdn)
-				}
-			}
+		name := rr.Name
+		if name == "@" {
+			rrs[i].Name = nfdFqdn
+			continue
 		}
+		// Replace the '.@' origin marker with the NFD's FQDN.
+		if strings.HasSuffix(name, ".@") {
+			name = name[:len(name)-1] + nfdFqdn
+		}
+		// Normalize legacy/alt-mirror suffixes (.algo.xyz, .dotalgo.io) to the
+		// canonical .algo form, in both with-trailing-dot and bare forms.
+		switch {
+		case strings.HasSuffix(name, ".algo.xyz."):
+			name = strings.TrimSuffix(name, "xyz.") // xxx.algo.xyz. -> xxx.algo.
+		case strings.HasSuffix(name, ".algo.xyz"):
+			name = strings.TrimSuffix(name, "xyz") // xxx.algo.xyz -> xxx.algo.
+		case strings.HasSuffix(name, ".dotalgo.io."):
+			name = strings.TrimSuffix(name, ".dotalgo.io.") + ".algo."
+		case strings.HasSuffix(name, ".dotalgo.io"):
+			name = strings.TrimSuffix(name, ".dotalgo.io") + ".algo."
+		}
+		// Bring bare ".algo" forms into FQDN form so the scope check below is
+		// comparing apples to apples.
+		if strings.HasSuffix(name, ".algo") {
+			name += "."
+		}
+		// Scope enforcement: the resulting name MUST lie inside the NFD's own
+		// FQDN subtree. Anything outside is re-rooted under the NFD as a
+		// relative subname. This catches:
+		//   - bare labels (e.g., "www")
+		//   - trailing-dot forms at the DNS root (e.g., "_test._tcp.")
+		//   - cross-root references (e.g., "test.bar.algo." stored on foo.algo)
+		// The NFD owner has no DNS authority outside their own zone, so we
+		// must not emit authoritative records for anything else.
+		if name != nfdFqdn && !strings.HasSuffix(name, nfdSubSuffix) {
+			name = strings.TrimSuffix(name, ".") + nfdSubSuffix
+		}
+		rrs[i].Name = name
 	}
 }
 

@@ -467,6 +467,122 @@ func TestConvertOriginRefs(t *testing.T) {
 			},
 		},
 		{
+			// trailing-dot form rooted at the DNS root is unservable as written
+			// (the NFD owner has no authority over names outside .algo.) — treat
+			// it as a typo for the relative form and re-root under the NFD.
+			name: "trailing-dot non-in-zone name re-rooted under NFD",
+			fqdn: "foo.algo",
+			input: []JsonRr{
+				{Name: "_test._tcp."},
+			},
+			expected: []JsonRr{
+				{Name: "_test._tcp.foo.algo."},
+			},
+		},
+		{
+			name: "bare trailing-dot subname re-rooted under NFD",
+			fqdn: "patrick.algo",
+			input: []JsonRr{
+				{Name: "www."},
+			},
+			expected: []JsonRr{
+				{Name: "www.patrick.algo."},
+			},
+		},
+		{
+			// Both canonical (".algo." in-zone) and the trailing-dot footgun
+			// resolve to the same final name.
+			name: "underscore SRV name forms all resolve under NFD",
+			fqdn: "foo.algo",
+			input: []JsonRr{
+				{Name: "_test._tcp.@"},
+				{Name: "_test._tcp"},
+				{Name: "_test._tcp."},
+				{Name: "_test._tcp.foo.algo."},
+			},
+			expected: []JsonRr{
+				{Name: "_test._tcp.foo.algo."},
+				{Name: "_test._tcp.foo.algo."},
+				{Name: "_test._tcp.foo.algo."},
+				{Name: "_test._tcp.foo.algo."},
+			},
+		},
+		{
+			// Cross-root reference: an FQDN under a *different* NFD's subtree
+			// must NOT be served as authoritative — the NFD owner has no
+			// authority outside their own zone. Re-root under foo.algo.
+			name: "cross-root FQDN re-rooted under NFD",
+			fqdn: "foo.algo",
+			input: []JsonRr{
+				{Name: "test.bar.algo."},
+				{Name: "test.bar.algo"}, // missing trailing dot variant
+			},
+			expected: []JsonRr{
+				{Name: "test.bar.algo.foo.algo."},
+				{Name: "test.bar.algo.foo.algo."},
+			},
+		},
+		{
+			// Cross-root via the .algo.xyz mirror form: after stripping ".xyz"
+			// we get "www.bar.algo." which is outside foo.algo's subtree, so
+			// it gets re-rooted (rather than escaping into bar.algo's zone).
+			name: "cross-root .algo.xyz mirror re-rooted under NFD",
+			fqdn: "foo.algo",
+			input: []JsonRr{
+				{Name: "www.bar.algo.xyz"},
+				{Name: "www.bar.algo.xyz."},
+			},
+			expected: []JsonRr{
+				{Name: "www.bar.algo.foo.algo."},
+				{Name: "www.bar.algo.foo.algo."},
+			},
+		},
+		{
+			// Cross-root via the .dotalgo.io mirror form, both with and without
+			// trailing dot.
+			name: "cross-root .dotalgo.io mirror re-rooted under NFD",
+			fqdn: "foo.algo",
+			input: []JsonRr{
+				{Name: "www.bar.dotalgo.io"},
+				{Name: "www.bar.dotalgo.io."},
+			},
+			expected: []JsonRr{
+				{Name: "www.bar.algo.foo.algo."},
+				{Name: "www.bar.algo.foo.algo."},
+			},
+		},
+		{
+			// Same mirror suffix but pointing at the SAME NFD as fqdn: that's
+			// in-scope and stays canonical (this also exercises the trailing-dot
+			// mirror variants explicitly).
+			name: "in-zone .algo.xyz mirror with trailing dot kept canonical",
+			fqdn: "patrick.algo",
+			input: []JsonRr{
+				{Name: "www.patrick.algo.xyz."},
+				{Name: "www.patrick.dotalgo.io."},
+			},
+			expected: []JsonRr{
+				{Name: "www.patrick.algo."},
+				{Name: "www.patrick.algo."},
+			},
+		},
+		{
+			// Segment scope: when the fqdn is a segment (bar.foo.algo), records
+			// must lie under the segment's subtree. A name pointing at the
+			// parent root's subtree (foo.algo) is out-of-scope from the
+			// segment's perspective.
+			name: "segment fqdn re-roots names outside segment subtree",
+			fqdn: "bar.foo.algo",
+			input: []JsonRr{
+				{Name: "www.bar.foo.algo."}, // in-scope, kept
+				{Name: "www.foo.algo."},     // outside segment, re-rooted
+			},
+			expected: []JsonRr{
+				{Name: "www.bar.foo.algo."},
+				{Name: "www.foo.algo.bar.foo.algo."},
+			},
+		},
+		{
 			name: "multiple records",
 			fqdn: "test.algo",
 			input: []JsonRr{
