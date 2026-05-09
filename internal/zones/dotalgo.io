@@ -1,11 +1,12 @@
 $ORIGIN dotalgo.io.
+$TTL 300
 
 @       IN      SOA     dotalg1.nfdomains.dev. hostmaster.dotalg1.nfdomains.dev. (
-                             2026050801 ; Serial
+                             2026050901 ; Serial
                              4H         ; Refresh
                              1H         ; Retry
                              7D         ; Expire
-                             4H )       ; Negative Cache TTL
+                             60 )       ; Negative Cache TTL
 
 @ 3600 IN NS dotalg1.nfdomains.dev.
 @ 3600 IN NS dotalg2.nfdomains.dev.

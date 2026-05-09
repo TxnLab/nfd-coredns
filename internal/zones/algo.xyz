@@ -1,11 +1,12 @@
 $ORIGIN algo.xyz.
+$TTL 300
 
 @       IN      SOA     ns1.nfdomains.dev. hostmaster.ns1.nfdomains.dev. (
-                             2026031302 ; Serial
+                             2026050901 ; Serial
                              4H         ; Refresh
                              1H         ; Retry
                              7D         ; Expire
-                             4H )       ; Negative Cache TTL
+                             60 )       ; Negative Cache TTL
 
 @ 3600 IN NS ns1.nfdomains.dev.
 @ 3600 IN NS algo2.ns.nodely.io.
