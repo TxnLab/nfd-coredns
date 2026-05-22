@@ -34,7 +34,7 @@ const (
 	// defaults
 	defRegId        = 760937186
 	defAlgoXyzIp    = "34.8.101.7"
-	defCacheMinutes = 5
+	defCacheMinutes = 1
 )
 
 func init() {

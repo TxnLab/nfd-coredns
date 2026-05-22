@@ -196,5 +196,5 @@ func TestDefaultValues(t *testing.T) {
 	// Verify default constants
 	assert.Equal(t, uint64(760937186), uint64(defRegId))
 	assert.Equal(t, "34.8.101.7", defAlgoXyzIp)
-	assert.Equal(t, 5, defCacheMinutes)
+	assert.Equal(t, 1, defCacheMinutes)
 }
