@@ -201,39 +201,72 @@ func TestGetNfdRRs(t *testing.T) {
 			},
 		},
 		{
-			// query a segment that has different owner than root
-			name:  "split ownership error in segments",
-			qname: "segment.test.algo.",
+			// Same-owner segment: root and segment are merged. The root can extend
+			// the segment with sub-records the segment doesn't define, and the root
+			// wins when both define the same name+type.
+			name:  "same-owner segment merges with root (root wins on conflict, root extends segment)",
+			qname: "relay.belt.algo.",
 			nfdRRHandler: func(handler *nfdRRHandler) {
 				handler.nfdFetcher = &mockNfdFetcher{
 					fetchFunc: func(ctx context.Context, log clog.P, names []string) (map[string]Properties, error) {
-						// still need 'valid' dns just to get past that check - don't worry about contents
-						dnsData := []JsonRr{
-							{
-								Name: "test.algo.",
-								RrData: []string{
-									"127.0.0.1",
-								},
-								Ttl:  300,
-								Type: "A",
-							},
-						}
-						dnsJson, _ := json.Marshal(dnsData)
+						// Root owns belt.algo AND defines records that fall inside the
+						// relay segment: relay.@ (conflicts with the segment's own apex)
+						// and extra.relay.@ (a sub-record the segment doesn't define).
+						rootDns := `[{"name":"@","rrData":["9.9.9.9"],"type":"a","ttl":3600},{"name":"relay.@","rrData":["1.1.1.1"],"type":"a","ttl":3600},{"name":"extra.relay.@","rrData":["2.2.2.2"],"type":"a","ttl":3600}]`
+						// Segment's own apex A conflicts with root's relay.@ (root wins);
+						// its AAAA has no conflict and is merged in.
+						segmentDns := `[{"name":"@","rrData":["10.0.0.1"],"type":"a","ttl":3600},{"name":"@","rrData":["::1"],"type":"aaaa","ttl":3600}]`
 						return map[string]Properties{
-							"test.algo": {
-								Internal:    map[string]string{"name": "test.algo", "owner": "owner1"},
-								UserDefined: map[string]string{"dns": string(dnsJson)},
+							"belt.algo": {
+								Internal:    map[string]string{"name": "belt.algo", "owner": "owner1"},
+								UserDefined: map[string]string{"dns": rootDns},
 							},
-							"segment.test.algo": {
-								Internal:    map[string]string{"name": "segment.test.algo", "owner": "owner2"}, // Different owner
-								UserDefined: map[string]string{"dns": string(dnsJson)},
+							"relay.belt.algo": {
+								Internal:    map[string]string{"name": "relay.belt.algo", "owner": "owner1"}, // same owner
+								UserDefined: map[string]string{"dns": segmentDns},
 							},
 						}, nil
 					},
 				}
 			},
-			expectedError: ErrNfdSplitOwnership,
-			expectedRRs:   nil,
+			expectedError: nil,
+			// Merge order is base (root) first, then non-conflicting segment records.
+			expectedRRs: []JsonRr{
+				{Name: "belt.algo.", RrData: []string{"9.9.9.9"}, Ttl: 3600, Type: "a"},
+				{Name: "relay.belt.algo.", RrData: []string{"1.1.1.1"}, Ttl: 3600, Type: "a"},       // root wins over segment's 10.0.0.1
+				{Name: "extra.relay.belt.algo.", RrData: []string{"2.2.2.2"}, Ttl: 3600, Type: "a"}, // root extends segment
+				{Name: "relay.belt.algo.", RrData: []string{"::1"}, Ttl: 3600, Type: "aaaa"},        // segment-only type merged in
+			},
+		},
+		{
+			// A segment owned by a DIFFERENT account than its root is a delegated
+			// child zone: it serves its own records, and the root's records are
+			// not served for the segment's subtree.
+			name:  "delegated segment (different owner) serves its own records",
+			qname: "segment.test.algo.",
+			nfdRRHandler: func(handler *nfdRRHandler) {
+				handler.nfdFetcher = &mockNfdFetcher{
+					fetchFunc: func(ctx context.Context, log clog.P, names []string) (map[string]Properties, error) {
+						rootDns := `[{"name":"@","rrData":["1.1.1.1"],"type":"a","ttl":3600}]`
+						segmentDns := `[{"name":"@","rrData":["10.0.0.1"],"type":"a","ttl":3600}]`
+						return map[string]Properties{
+							"test.algo": {
+								Internal:    map[string]string{"name": "test.algo", "owner": "owner1"},
+								UserDefined: map[string]string{"dns": rootDns},
+							},
+							"segment.test.algo": {
+								Internal:    map[string]string{"name": "segment.test.algo", "owner": "owner2"}, // Different owner
+								UserDefined: map[string]string{"dns": segmentDns},
+							},
+						}, nil
+					},
+				}
+			},
+			expectedError: nil,
+			// Only the segment's own record is served; the root's 1.1.1.1 is not.
+			expectedRRs: []JsonRr{
+				{Name: "segment.test.algo.", RrData: []string{"10.0.0.1"}, Ttl: 3600, Type: "a"},
+			},
 		},
 		{
 			name:  "bare label subdomain - grafana.corvid.algo",
@@ -351,7 +384,9 @@ func TestGetNfdRRs(t *testing.T) {
 			},
 		},
 		{
-			name:  "SRV on segmented NFD with split ownership rejected",
+			// A differently-owned segment is delegated: its SRV record is served
+			// from the segment, and the root's identical record is not merged in.
+			name:  "SRV on delegated segment (different owner) served from segment",
 			qname: "_test._tcp.bar.foo.algo.",
 			nfdRRHandler: func(handler *nfdRRHandler) {
 				handler.nfdFetcher = &mockNfdFetcher{
@@ -373,8 +408,10 @@ func TestGetNfdRRs(t *testing.T) {
 					},
 				}
 			},
-			expectedError: ErrNfdSplitOwnership,
-			expectedRRs:   nil,
+			expectedError: nil,
+			expectedRRs: []JsonRr{
+				{Name: "_test._tcp.bar.foo.algo.", RrData: []string{"10 5 8883 broker.bar.foo.algo."}, Ttl: 300, Type: "SRV"},
+			},
 		},
 		{
 			name:  "too many segments still rejected when leading underscores can't absorb the depth",

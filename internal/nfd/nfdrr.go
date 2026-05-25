@@ -23,7 +23,6 @@ import (
 
 var (
 	ErrNfdTooManySegments = errors.New("too many segments")
-	ErrNfdSplitOwnership  = errors.New("nfd segment has different owner than root")
 )
 
 // NfdRRHandler is interface used for fetching DNS resource resources from an NFD, returned as a slice of JsonRR's
@@ -115,36 +114,50 @@ func (n *nfdRRHandler) GetNfdRRs(ctx context.Context, log clog.P, qname string) 
 		baseJsonRrs    []JsonRr
 		segmentJsonRrs []JsonRr
 	)
-	baseJsonRrs, err = nfdToJsonRRs(ctx, nfdRootData)
-	if err != nil {
-		log.Errorf("error converting NFD:%s w/ dns prop:%s to jsonRRs: %v", nfdRootName, nfdRootData.UserDefined["dns"], err)
-		return nil, err
-	}
+	var segmentDelegated bool
 	if segmentBasename != "" {
 		var segmentFound bool
 		nfdSegmentData, segmentFound = nfdData[segmentFQName]
 		if segmentFound {
-			// segment found - it MUST be the same owner !!! so... can't set this record..
-			// ie: mail.patrick.algo.xyz - but mail isn't owned by patrick
-			// so we should act like it doesn't exist.
-			if nfdSegmentData.Internal["owner"] != nfdRootData.Internal["owner"] {
-				log.Warningf("nfdSegmentData.Internal.owner: (%s) %s != (%s) %s", nfdSegmentData.Internal["name"], nfdSegmentData.Internal["owner"],
-					nfdRootData.Internal["name"], nfdRootData.Internal["owner"])
-				return nil, ErrNfdSplitOwnership
-			}
+			// A segment is its own NFD with its own owner, and it always serves
+			// its own DNS records — we never fail the lookup just because the
+			// owners differ. How it combines with the root depends on ownership:
+			//   - same owner: the root may extend the segment with sub-records
+			//     (merged below; root wins on conflict).
+			//   - different owner: the segment is a delegated child zone, solely
+			//     authoritative for its own subtree. The root NFD owner has no
+			//     DNS authority inside it (ie: mail.patrick.algo owned by someone
+			//     other than patrick is mail's to control, not patrick's).
+			segmentDelegated = nfdSegmentData.Internal["owner"] != nfdRootData.Internal["owner"]
 			segmentJsonRrs, err = nfdToJsonRRs(ctx, nfdSegmentData)
 			if err != nil {
 				log.Errorf("error converting NFD:%s w/ dns prop:%s to jsonRRs: %v", segmentFQName, nfdSegmentData.UserDefined["dns"], err)
 				return nil, err
 			}
+			// process the names (@ turns into FQDN) before the merge decision
+			ConvertOriginRefs(ctx, segmentFQName, segmentJsonRrs)
 		}
 	}
 
-	// we loaded the RRs from the NFDs - now process the names (@ turns into FQDN) and then merge
-	ConvertOriginRefs(ctx, nfdRootName, baseJsonRrs)
-	ConvertOriginRefs(ctx, segmentFQName, segmentJsonRrs)
-
-	mergedJsonRrs := MergeJsonRrrs(ctx, baseJsonRrs, segmentJsonRrs)
+	var mergedJsonRrs []JsonRr
+	if segmentDelegated {
+		// Delegated child zone: the queried name is always at or under the
+		// segment, and the root has no authority inside the segment's subtree,
+		// so the root's records are irrelevant here — serve only the segment's.
+		// Skip building the root's records entirely (the root's DNS validity is
+		// likewise irrelevant to a delegated segment).
+		mergedJsonRrs = segmentJsonRrs
+	} else {
+		// Root, or a same-owner segment the root may extend: build the root's
+		// records and merge (root wins on conflict).
+		baseJsonRrs, err = nfdToJsonRRs(ctx, nfdRootData)
+		if err != nil {
+			log.Errorf("error converting NFD:%s w/ dns prop:%s to jsonRRs: %v", nfdRootName, nfdRootData.UserDefined["dns"], err)
+			return nil, err
+		}
+		ConvertOriginRefs(ctx, nfdRootName, baseJsonRrs)
+		mergedJsonRrs = MergeJsonRrrs(ctx, baseJsonRrs, segmentJsonRrs)
+	}
 	log.Debugf("mergedJsonRrs: %+v", mergedJsonRrs)
 	n.rrCache.Add(qname, mergedJsonRrs)
 

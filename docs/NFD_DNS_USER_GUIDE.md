@@ -380,18 +380,24 @@ This enables your NFD to serve as your Bluesky handle.
 
 ## NFD Segments (Subdomains)
 
-If you own NFD segments (subdomains like `mail.patrick.algo`), their DNS records are automatically merged with the root NFD.
+A segment (e.g. `relay.belt.algo`) is its own NFD with its own owner, and it **always serves its own DNS records** — regardless of who owns the root NFD. How a segment combines with the root depends on ownership:
 
-**Rules:**
-- Segment must be owned by the same account as the root NFD
-- Root NFD records take priority if there's a conflict
-- Maximum depth: 3 labels (e.g., `a.b.patrick.algo`)
+**Same owner as the root NFD** — the segment is merged with the root. The root can define sub-records that fall inside the segment, and root records win if both define the same name + type. This lets you manage a root NFD and the segments you own as one zone.
+
+**Different owner from the root NFD** — the segment alone is authoritative for its own subtree (`relay.belt.algo` and everything under it); the root NFD owner has no DNS authority inside it, and any root records pointing into the segment's subtree are ignored. This mirrors how segments are sold and operated independently.
+
+> **Note:** "Authoritative" here describes the *NFD-ownership* boundary, not a DNS delegation. The plugin still answers these names directly — there is no NS referral and no delegated subzone (NFD subdomains never have NS records; see [Limitations](#limitations) below).
+
+**In both cases:**
+- A query for the segment resolves to the segment's own records — e.g. `relay.belt.algo` returns the A record stored on the `relay.belt.algo` NFD, even though `belt.algo` has no `relay` record.
+- If the segment exists but defines no DNS records, it falls back to the default placeholder, just like a root NFD.
+- Maximum depth: one record label beyond the segment (e.g. `key.relay.belt.algo`); deeper names are rejected.
 
 ---
 
 ## Limitations
 
-1. **Segment depth**: Maximum of 3 labels after your NFD name (e.g., `a.b.c.patrick.algo` is the limit)
+1. **Segment depth**: At most one record label beyond a segment (e.g., `key.segment.patrick.algo` resolves; `a.key.segment.patrick.algo` is rejected). Leading `_`-prefixed service labels (e.g. `_test._tcp`) don't count toward this limit.
 
 2. **No NS records for subdomains**: Your NFD subdomains are not delegated zones. NS records only work at the zone apex (`algo.xyz` itself).
 

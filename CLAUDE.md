@@ -99,5 +99,4 @@ The Corefile uses a `rewrite` rule to convert external queries:
 ## Key Errors (internal/nfd)
 - `ErrNfdNotFound` - NFD doesn't exist on blockchain
 - `ErrNfdTooManySegments` - Query exceeds segment depth limits
-- `ErrNfdSplitOwnership` - Segment owned by different account
 - `ErrNfdExpired` - NFD registration has expired

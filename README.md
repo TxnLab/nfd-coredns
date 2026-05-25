@@ -39,7 +39,7 @@ TTL values are clamped between 60 and 86,400 seconds (default: 300s).
 
 ## NFD Features
 
-- **Segments**: NFDs support subdomains (segments) up to 3 labels deep (e.g., `mail.patrick.algo`). Segment ownership is validated against the root NFD owner.
+- **Segments**: NFDs support subdomains (segments), e.g. `relay.belt.algo`. A segment is its own NFD and always serves its own DNS records. When the segment shares the root NFD's owner, the root can extend it with sub-records (root wins on conflict); when it's owned by a different account, only that segment's own records are served for its subtree — an NFD-ownership boundary, where the plugin still answers authoritatively (no DNS NS delegation; see Limitations).
 - **Bluesky integration**: If an NFD has a verified Bluesky DID, the plugin automatically generates an `_atproto` TXT record.
 - **Expiration handling**: Expired NFDs return a default A record pointing to a configurable IP address.
 - **Two-level caching**: NFD properties and DNS RR sets are cached separately in TTL-based LRU caches (50K entries each).
