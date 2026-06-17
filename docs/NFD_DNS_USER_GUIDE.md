@@ -378,6 +378,36 @@ This enables your NFD to serve as your Bluesky handle.
 
 ---
 
+## Decentralized Websites (IPFS via DNSLink)
+
+You can point your NFD at content stored on IPFS — the same idea as ENS's on-chain `contenthash`, but done with a standard DNS record, so it works with existing IPFS gateways and needs no special support.
+
+Add a TXT record at `_dnslink.@` whose value is a DNSLink path:
+
+- `dnslink=/ipfs/<CID>` — an immutable snapshot (the content for that exact CID)
+- `dnslink=/ipns/<name>` — a mutable pointer you can update without changing DNS
+
+```json
+{
+  "name": "_dnslink.@",
+  "type": "TXT",
+  "rrData": ["\"dnslink=/ipfs/bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi\""],
+  "ttl": 300
+}
+```
+
+This serves:
+
+```
+_dnslink.patrick.algo.xyz. TXT "dnslink=/ipfs/bafybei..."
+```
+
+**Viewing it:** any IPFS gateway resolves it, e.g. `https://ipfs.io/ipns/patrick.algo.xyz/` or `https://dweb.link/ipns/patrick.algo.xyz/`. For direct browser access at `patrick.algo.xyz`, point your `@` record (A/CNAME) at a DNSLink-aware gateway (e.g. a self-hosted Kubo DNSLink gateway or Cloudflare's web3 gateway); the gateway reads the `_dnslink` record by Host header and serves the IPFS content.
+
+**Why this works:** unlike ENS — where `contenthash` lives on-chain and a gateway/browser must read the chain to translate it — the NFD DNS service answers DNS directly, so the standard DNSLink TXT convention is all you need. The `_dnslink` label is handled like any other underscore-prefixed name (the same mechanism behind `_dmarc` and `_atproto`).
+
+---
+
 ## NFD Segments (Subdomains)
 
 A segment (e.g. `relay.belt.algo`) is its own NFD with its own owner, and it **always serves its own DNS records** — regardless of who owns the root NFD. How a segment combines with the root depends on ownership:
@@ -436,6 +466,11 @@ dig www.patrick.algo.xyz CNAME
 dig _atproto.patrick.algo.xyz TXT
 ```
 
+**Test IPFS DNSLink:**
+```bash
+dig _dnslink.patrick.algo.xyz TXT
+```
+
 You should see your configured records in the ANSWER SECTION of the response.
 
 ---
@@ -468,3 +503,4 @@ You should see your configured records in the ANSWER SECTION of the response.
 | Receive email | MX | `["10 mail.provider.com."]` |
 | Add verification | TXT | `["verification-code"]` |
 | Restrict SSL issuers | CAA | `["0 issue \"letsencrypt.org\""]` |
+| Point domain to IPFS content | TXT (`_dnslink.@`) | `["\"dnslink=/ipfs/<CID>\""]` |
