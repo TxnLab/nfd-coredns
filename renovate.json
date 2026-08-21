@@ -2,5 +2,13 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended"
+  ],
+  "packageRules": [
+    {
+      "description": "github.com/coredns/caddy v2.x tags are inherited from the upstream caddyserver/caddy fork point (v2.1.1 is from June 2020) and predate this fork's own v1 line. They are not upgrades. CoreDNS itself still requires the v1 module path, so stay on v1 until that changes.",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["github.com/coredns/caddy"],
+      "allowedVersions": "<2.0.0"
+    }
   ]
 }
