@@ -105,7 +105,18 @@ func (n *nfdRRHandler) GetNfdRRs(ctx context.Context, log clog.P, qname string) 
 			return nil, err
 		}
 	}
-	nfdRootData = nfdData[nfdRootName]
+	var rootFound bool
+	nfdRootData, rootFound = nfdData[nfdRootName]
+	if !rootFound {
+		// The root NFD isn't in the fetch result. fetchNFDs only omits it when the
+		// NFD genuinely doesn't exist -- either it just answered not-found, or a
+		// previous lookup cached it as not-found and there was nothing left to
+		// fetch. Both mean "no such NFD", so report it as such: a generic error
+		// here would surface as SERVFAIL instead of the NXDOMAIN the caller
+		// produces for ErrNfdNotFound.
+		log.Infof("nfd %s not found (absent from fetch result)", nfdRootName)
+		return nil, ErrNfdNotFound
+	}
 	if nfdRootData.Internal["name"] != nfdRootName {
 		log.Errorf("nfdRootData.Internal.name: %s != %s", nfdRootData.Internal["name"], nfdRootName)
 		return nil, fmt.Errorf("nfdRootData.Internal.name: %s != %s", nfdRootData.Internal["name"], nfdRootName)
@@ -192,15 +203,19 @@ func (n *nfdRRHandler) fetchNFDs(ctx context.Context, log clog.P, names []string
 	// fetch the list of nfds and merge with cache
 	fetchedNfds, err := n.nfdFetcher.FetchNfdDnsVals(ctx, namesToFetch)
 	log.Debugf("fetchedNfds: names to fetch:%v, fetched:%d, %v, err:%v", namesToFetch, len(fetchedNfds), slices.Collect(maps.Keys(fetchedNfds)), err)
-	// Add the names that were NOT found to our cache - but as not-found so we don't keep trying to fetch them for a bit
+	if err != nil && !errors.Is(err, ErrNfdNotFound) {
+		// A transient failure (algod unreachable, an incompatible NFD in the same
+		// batch, etc.) is not evidence that these names don't exist, so nothing is
+		// cached here. Caching them as not-found would turn a momentary blip into
+		// sustained failures for a whole cache period, including for healthy
+		// segments whose root happened to be in the failed batch.
+		log.Warningf("nfds %v error in fetch, not caching: %v", namesToFetch, err)
+		return nil, err
+	}
+	// Add the names that were definitively NOT found to our cache - as not-found
+	// so we don't keep trying to fetch them for a bit
 	for _, name := range namesToFetch {
-		var found bool
-		if fetchedNfds == nil {
-			found = false
-		} else {
-			_, found = fetchedNfds[name]
-		}
-		if !found {
+		if _, found := fetchedNfds[name]; !found {
 			log.Debugf("[not found] added to nfd cache: %s, 0 props", name)
 			n.nfdCache.Add(name, Properties{})
 		}
@@ -213,9 +228,7 @@ func (n *nfdRRHandler) fetchNFDs(ctx context.Context, log clog.P, names []string
 		}
 		return nil, err
 	}
-	if err != nil {
-		return nil, err
-	}
+	// err is nil from here: every non-nil error returned above.
 	// merge the prior cached retVals with fetchedNfds map
 	for name, props := range fetchedNfds {
 		n.nfdCache.Add(name, props)

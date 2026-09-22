@@ -497,3 +497,89 @@ type mockNfdFetcher struct {
 func (m *mockNfdFetcher) FetchNfdDnsVals(ctx context.Context, names []string) (map[string]Properties, error) {
 	return m.fetchFunc(ctx, clog.P{}, names)
 }
+
+func newCachingTestHandler(fetch func(ctx context.Context, log clog.P, names []string) (map[string]Properties, error)) *nfdRRHandler {
+	return &nfdRRHandler{
+		nfdFetcher: &mockNfdFetcher{fetchFunc: fetch},
+		nfdCache:   expirable.NewLRU[string, Properties](10, nil, time.Minute),
+		rrCache:    expirable.NewLRU[string, []JsonRr](10, nil, time.Minute),
+	}
+}
+
+// A not-found NFD must report ErrNfdNotFound on every query, not just the first.
+// The negative cache entry written by the first lookup used to make the second
+// lookup fail the root-identity check with a generic error, which the plugin maps
+// to SERVFAIL instead of NXDOMAIN.
+func TestGetNfdRRs_NotFoundIsStableAcrossCacheHits(t *testing.T) {
+	var calls int
+	handler := newCachingTestHandler(func(_ context.Context, _ clog.P, _ []string) (map[string]Properties, error) {
+		calls++
+		return nil, ErrNfdNotFound
+	})
+	log := clog.NewWithPlugin("test-plugin")
+
+	for i := 1; i <= 3; i++ {
+		rrs, err := handler.GetNfdRRs(context.Background(), log, "nosuchnfd.algo.")
+		assert.ErrorIsf(t, err, ErrNfdNotFound, "query %d should report not-found, got %v", i, err)
+		assert.Nil(t, rrs, "query %d should return no records", i)
+	}
+	// The negative cache should still be doing its job - only the first query hits the chain.
+	assert.Equal(t, 1, calls, "not-found result should be cached after the first lookup")
+}
+
+// A transient fetch failure must not be cached as "not found". Doing so used to
+// poison the root NFD for a whole cache period, so that a healthy, differently-owned
+// segment under it failed the root-identity check and returned SERVFAIL.
+func TestGetNfdRRs_TransientFetchErrorIsNotNegativelyCached(t *testing.T) {
+	var (
+		rootOwner    = "OWNER_ROOT"
+		segmentOwner = "OWNER_SEGMENT"
+		transient    = errors.New("algod unavailable")
+		failing      = true
+	)
+	rootJson, _ := json.Marshal([]JsonRr{
+		{Name: "@", RrData: []string{"1.1.1.1"}, Type: "a", Ttl: 300},
+	})
+	segmentJson, _ := json.Marshal([]JsonRr{
+		{Name: "@", RrData: []string{"2.2.2.2"}, Type: "a", Ttl: 300},
+	})
+
+	handler := newCachingTestHandler(func(_ context.Context, _ clog.P, names []string) (map[string]Properties, error) {
+		if failing {
+			return nil, transient
+		}
+		out := map[string]Properties{}
+		for _, name := range names {
+			switch name {
+			case "belt.algo":
+				out[name] = Properties{
+					Internal:    map[string]string{"name": "belt.algo", "owner": rootOwner},
+					UserDefined: map[string]string{"dns": string(rootJson)},
+				}
+			case "relay.belt.algo":
+				out[name] = Properties{
+					Internal:    map[string]string{"name": "relay.belt.algo", "owner": segmentOwner},
+					UserDefined: map[string]string{"dns": string(segmentJson)},
+				}
+			}
+		}
+		return out, nil
+	})
+	log := clog.NewWithPlugin("test-plugin")
+
+	// Outage: the root lookup fails and must surface the underlying error.
+	_, err := handler.GetNfdRRs(context.Background(), log, "belt.algo.")
+	assert.ErrorIs(t, err, transient)
+
+	// Nothing may have been cached for the root, or the failure outlives the outage.
+	_, cached := handler.nfdCache.Get("belt.algo")
+	assert.False(t, cached, "a transient fetch error must not populate the not-found cache")
+
+	// Chain recovers: the delegated segment must resolve to its own record.
+	failing = false
+	rrs, err := handler.GetNfdRRs(context.Background(), log, "relay.belt.algo.")
+	assert.NoError(t, err)
+	assert.Equal(t, []JsonRr{
+		{Name: "relay.belt.algo.", RrData: []string{"2.2.2.2"}, Type: "a", Ttl: 300},
+	}, rrs)
+}
