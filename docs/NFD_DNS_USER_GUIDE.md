@@ -28,9 +28,18 @@ DNS records are stored as JSON in your NFD. Each record has these fields:
 | Field | Required | Description |
 |-------|----------|-------------|
 | `name` | Yes | Where the record applies (use `@` for your domain) |
-| `type` | Yes | Record type: A, AAAA, CNAME, MX, TXT, SRV, CAA |
+| `type` | Yes | Record type: A, AAAA, CNAME, MX, TXT, SRV, CAA, CERT |
 | `rrData` | Yes | Array of record values |
 | `ttl` | No | Cache time in seconds (default: 300) |
+
+Record types are matched case-insensitively, so `"type": "A"` and `"type": "a"` are
+equivalent.
+
+> **`@` works in `name`, but not in `rrData`.** The `@` shorthand is expanded only in the
+> `name` field. Inside `rrData` it is passed through to the DNS parser unchanged, where it
+> resolves to the DNS root — so `"rrData": ["@"]` silently produces a record pointing at
+> `.`, not at your NFD. Always write rrData targets as fully-qualified names with a
+> trailing dot (e.g. `"patrick.algo.xyz."`).
 
 ### Name Field
 
@@ -75,6 +84,10 @@ The same scope rule applies even to fully-qualified names that reference *other*
 - Minimum: 60 seconds
 - Maximum: 86,400 seconds (24 hours)
 - Default: 300 seconds (5 minutes)
+
+Values outside the range are clamped to the nearest bound. Omitting `ttl`, or setting it to
+zero or a negative number, gives you the 300-second default rather than the 60-second
+minimum.
 
 Lower TTL = faster updates, but more DNS queries. Higher TTL = better caching, but slower propagation of changes.
 
@@ -135,6 +148,21 @@ Point a subdomain to another domain name.
 - Point `www` to your hosting provider
 - Point subdomains to cloud services (Vercel, Netlify, etc.)
 
+**CNAME at the apex works here.** Standard DNS forbids a CNAME at a zone apex, but the NFD
+DNS service resolves CNAMEs itself and returns both the CNAME and its resolved answer, so
+`"name": "@"` with a CNAME is valid and useful for hosting platforms that only give you a
+hostname. The target is followed for every query type, internally for other `.algo` names
+and via an upstream resolver for external ones.
+
+**But a CNAME shadows every other record type at the same name.** The service checks a name
+for a CNAME before answering any other query type, and returns it if found. So a CNAME at
+`@` prevents your `@` MX, TXT and A records from ever being served — silently breaking email
+and domain verification at your apex. Use an apex CNAME only when the apex has no other
+records; otherwise use an A record there.
+
+Targets must be fully qualified with a trailing dot. The same check makes a malformed CNAME
+especially costly: one bad CNAME makes *every* record type at that name fail.
+
 ### MX Record - Email
 
 Configure where email should be delivered.
@@ -156,6 +184,13 @@ The number before the server is the **priority** - lower numbers are tried first
 ### TXT Record - Text Data
 
 Store text data for verification, email authentication, and more.
+
+> **Quote any value containing spaces.** A TXT value is parsed as DNS zone-file data, so an
+> unquoted value with spaces is split into several separate strings — `v=spf1 include:... ~all`
+> becomes three strings that SPF checkers concatenate back together *without* the spaces,
+> silently breaking the policy. Wrap the whole value in escaped quotes, as in the examples
+> below. Single-token values like a verification code need no quotes. Values longer than
+> 255 characters (long DKIM keys) are chunked automatically and are fine.
 
 **SPF (email sender verification):**
 ```json
@@ -246,7 +281,7 @@ Point your NFD to a web server and create a www alias:
   {
     "name": "www.@",
     "type": "CNAME",
-    "rrData": ["@"],
+    "rrData": ["patrick.algo.xyz."],
     "ttl": 300
   }
 ]
@@ -267,7 +302,7 @@ Host a website and receive email via Google Workspace:
   {
     "name": "www.@",
     "type": "CNAME",
-    "rrData": ["@"],
+    "rrData": ["patrick.algo.xyz."],
     "ttl": 300
   },
   {
@@ -292,6 +327,11 @@ Host a website and receive email via Google Workspace:
 ### Vercel/Netlify Deployment
 
 Point your domain to a cloud hosting platform:
+
+> **Heads up:** these platforms may refuse to verify an NFD domain until `algo.xyz` is
+> accepted onto the Public Suffix List — the DNS records below are correct, but the
+> platform's ownership check is the blocker. See "Hosting platform won't verify your
+> domain?" under [Troubleshooting](#troubleshooting).
 
 ```json
 [
@@ -325,7 +365,7 @@ Complete configuration with website, email, SSL, and verification:
   {
     "name": "www.@",
     "type": "CNAME",
-    "rrData": ["@"],
+    "rrData": ["patrick.algo.xyz."],
     "ttl": 300
   },
   {
@@ -375,6 +415,9 @@ _atproto.patrick.algo.xyz. TXT "did=did:plc:abc123..."
 ```
 
 This enables your NFD to serve as your Bluesky handle.
+
+Don't add your own `_atproto.@` TXT record as well — the generated one is always appended,
+so a manual copy results in two conflicting TXT records rather than overriding it.
 
 ---
 
@@ -427,13 +470,30 @@ A segment (e.g. `relay.belt.algo`) is its own NFD with its own owner, and it **a
 
 ## Limitations
 
-1. **Segment depth**: At most one record label beyond a segment (e.g., `key.segment.patrick.algo` resolves; `a.key.segment.patrick.algo` is rejected). Leading `_`-prefixed service labels (e.g. `_test._tcp`) don't count toward this limit.
+1. **Segment depth**: At most one record label beyond a segment (e.g., `key.segment.patrick.algo` resolves; `a.key.segment.patrick.algo` is rejected). Leading `_`-prefixed service labels (e.g. `_test._tcp`) don't count toward this limit. Names that exceed the limit return SERVFAIL, which resolvers retry — so an over-deep name looks like an outage rather than a misconfiguration.
 
 2. **No NS records for subdomains**: Your NFD subdomains are not delegated zones. NS records only work at the zone apex (`algo.xyz` itself).
 
-3. **Record types**: The following types are supported: A, AAAA, CNAME, MX, TXT, SRV, CAA, NS, SOA, CERT
+3. **Record types**: You can configure A, AAAA, CNAME, MX, TXT, SRV, CAA and CERT records.
+   NS and SOA are accepted as *query* types but cannot be served from your NFD (see item 2).
+   Any other query type — including `HTTPS`/`SVCB` and `ANY` — returns NOTIMP.
 
-4. **Expiration**: If your NFD registration expires, DNS records will return a default placeholder until renewed.
+4. **No wildcards**: Names are matched exactly. A record named `*.@` matches only the
+   literal name `*.yournfd.algo.xyz`, not arbitrary subdomains.
+
+5. **No DNSSEC**: Responses are authoritative but unsigned.
+
+6. **A CNAME shadows other types at the same name**: a CNAME is checked before any other
+   record type, so a CNAME at `@` prevents your apex MX, TXT and A records from being served.
+
+7. **Requires a V3 NFD**: Explicit DNS records need contract version 3.0 or later. On an
+   older NFD, configured DNS records will not resolve.
+
+8. **Placeholder fallback**: Your NFD returns a default placeholder — a single A record at
+   your domain pointing to the NFD redirect service — instead of your configured records
+   whenever it is expired, **listed for sale**, or has no DNS records configured at all.
+   Queries for any other record type then return NODATA. Note that **listing your NFD for
+   sale disables all of its DNS records** until you delist or it sells.
 
 ---
 
@@ -478,13 +538,34 @@ You should see your configured records in the ANSWER SECTION of the response.
 ## Troubleshooting
 
 **Records not showing up?**
-- Wait a few minutes - there's caching at multiple levels
+- Wait a few minutes - there's caching at multiple levels. The service caches blockchain
+  lookups for about a minute, and resolvers cache on top of that. Newly minted NFDs are
+  also negatively cached, so a brand-new NFD can keep returning NXDOMAIN briefly.
 - Verify your JSON syntax is valid
+- Verify each record's *value* is valid too, not just the JSON. One unparseable value makes
+  the whole name fail with SERVFAIL rather than just skipping that record.
 - Check that record names use `@` or `subdomain.@` format
+- Check your NFD isn't listed for sale or expired - either replaces all your records with
+  the placeholder
 
 **Getting NXDOMAIN?**
-- Ensure your NFD exists and is not expired
+- NXDOMAIN means the *name* has no records of any type. Getting it for `sub.yournfd.algo.xyz`
+  usually means you have no record named `sub.@` at all - check the spelling of the `name` field.
+- If the name exists but has no record of the type you asked for, you get NOERROR with an
+  empty answer (NODATA) instead - that's the normal "wrong record type" result.
+- An expired or for-sale NFD does **not** return NXDOMAIN; it returns the placeholder A
+  record, so if you're seeing a stranger's redirect page, see "Placeholder fallback" under
+  [Limitations](#limitations).
 - Verify you're querying `*.algo.xyz`
+
+**Hosting platform won't verify your domain?**
+- Platforms like Vercel and Netlify use the Public Suffix List (PSL) to decide what counts
+  as a registrable domain. Until `algo.xyz` is on the PSL, they treat it as the registrable
+  domain and ask you to prove ownership of `algo.xyz` itself, which you can't do.
+- A PSL submission for `algo.xyz` is pending; until it's accepted, some platforms will
+  reject NFD domains regardless of your DNS records being correct.
+- One related caveat while PSL inclusion is pending: browser cookies scoped to `.algo.xyz`
+  aren't isolated between NFDs, so avoid setting cookies at that scope.
 
 **Email not working?**
 - MX records must have the priority number before the hostname
@@ -499,7 +580,7 @@ You should see your configured records in the ANSWER SECTION of the response.
 |--------------|-------------|----------------|
 | Point domain to IP | A | `["1.2.3.4"]` |
 | Point to IPv6 | AAAA | `["2001:db8::1"]` |
-| Create subdomain alias | CNAME | `["target.com."]` |
+| Create subdomain alias | CNAME | `["target.com."]` (never `["@"]`) |
 | Receive email | MX | `["10 mail.provider.com."]` |
 | Add verification | TXT | `["verification-code"]` |
 | Restrict SSL issuers | CAA | `["0 issue \"letsencrypt.org\""]` |

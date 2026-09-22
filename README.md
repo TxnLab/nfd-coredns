@@ -33,15 +33,23 @@ Root zone queries (e.g., `algo.xyz NS`) are served from embedded zone files. Out
 
 ## Supported DNS Record Types
 
-A, AAAA, CNAME, MX, TXT, SRV, CAA, CERT, NS, SOA
+A, AAAA, CNAME, MX, TXT, SRV, CAA, CERT, NS, SOA — any other qtype (including HTTPS/SVCB
+and ANY) returns NOTIMP.
 
-TTL values are clamped between 60 and 86,400 seconds (default: 300s).
+`NS` is accepted as a query type but is never answered from NFD data: NFD subdomains are
+not delegated zones, so NS queries return NODATA or NXDOMAIN with the zone's SOA in the
+authority section, per RFC 2308.
+
+TTL values are clamped between 60 and 86,400 seconds (default: 300s). A zero, absent, or
+negative TTL yields the 300s default rather than being clamped to the 60s minimum.
+
+Name matching is exact and case-insensitive — **wildcard records are not supported**.
 
 ## NFD Features
 
-- **Segments**: NFDs support subdomains (segments), e.g. `relay.belt.algo`. A segment is its own NFD and always serves its own DNS records. When the segment shares the root NFD's owner, the root can extend it with sub-records (root wins on conflict); when it's owned by a different account, only that segment's own records are served for its subtree — an NFD-ownership boundary, where the plugin still answers authoritatively (no DNS NS delegation; see Limitations).
+- **Segments**: NFDs support subdomains (segments), e.g. `relay.belt.algo`. A segment is its own NFD and always serves its own DNS records. When the segment shares the root NFD's owner, the root can extend it with sub-records (root wins on conflict); when it's owned by a different account, only that segment's own records are served for its subtree — an NFD-ownership boundary, where the plugin still answers authoritatively (no DNS NS delegation — see the Limitations section of [the user guide](docs/NFD_DNS_USER_GUIDE.md)).
 - **Bluesky integration**: If an NFD has a verified Bluesky DID, the plugin automatically generates an `_atproto` TXT record.
-- **Expiration handling**: Expired NFDs return a default A record pointing to a configurable IP address.
+- **Placeholder fallback**: An NFD returns a single apex A record pointing at the configurable `algoxyzip` address when it is expired, **listed for sale**, owned by its own app account, or simply has no `dns` property configured. Listing an NFD for sale therefore disables all of its DNS records.
 - **Two-level caching**: NFD properties and DNS RR sets are cached separately in TTL-based LRU caches (50K entries each).
 
 ### V2 vs V3 Contract Handling
@@ -71,8 +79,8 @@ algo.xyz {
         node https://mainnet-api.4160.nodely.dev   # Algorand algod API URL (required)
         token ""                                    # algod auth token (optional)
         registryid 760937186                        # NFD Registry app ID
-        cachemins 5                                 # LRU cache TTL in minutes
-        algoxyzip 34.111.170.195                    # Default A record IP for expired NFDs
+        cachemins 5                                 # LRU cache TTL in minutes (overrides the default of 1)
+        algoxyzip 34.111.170.195                    # A record IP for placeholder responses (overrides 34.8.101.7)
     }
 
     cache {
@@ -90,7 +98,7 @@ algo.xyz {
 | `node` | Yes | — | Algorand algod API endpoint URL |
 | `token` | No | `""` | Algod authentication token |
 | `registryid` | No | `760937186` | NFD Registry smart contract application ID |
-| `cachemins` | No | `5` | Cache TTL in minutes |
+| `cachemins` | No | `1` | Cache TTL in minutes |
 | `algoxyzip` | No | `34.8.101.7` | Default A record IP for expired/unowned NFDs |
 
 ## Building
@@ -100,14 +108,15 @@ algo.xyz {
 go build -v ./...
 
 # Production build with version info
-go build -v -o out/ \
+# (the goexperiment.jsonv2 tag matches the Dockerfile and release workflow)
+go build -v -tags=goexperiment.jsonv2 -o out/ \
   -ldflags="-s -w -X github.com/coredns/coredns/coremain.GitCommit=$(git describe --dirty --always)" .
 
 # Docker (linux/amd64)
 docker buildx build --platform linux/amd64 -t nfddns:latest .
 ```
 
-Requires **Go 1.25+**.
+Requires **Go 1.26+**.
 
 ## Testing
 
@@ -128,8 +137,9 @@ go test -v -run TestGetNfdRRs ./internal/nfd
 ├── main.go                  # CoreDNS plugin registration and directive ordering
 ├── nfd.go                   # NfdPlugin handler (ServeDNS, Lookup, Query)
 ├── setup.go                 # Plugin initialization and Corefile config parsing
-├── Corefile                 # Example CoreDNS configuration
+├── Corefile                 # Example CoreDNS configuration (algo.xyz + dotalgo.io blocks)
 ├── Dockerfile               # Multi-stage Docker build (golang → scratch)
+├── CLAUDE.md                # Repo guidance for Claude Code, incl. invariants and gotchas
 ├── internal/
 │   ├── nfd/
 │   │   ├── nfdrr.go         # NfdRRHandler — lookup orchestration with LRU caching
@@ -137,9 +147,11 @@ go test -v -run TestGetNfdRRs ./internal/nfd
 │   │   ├── dnsjson.go       # JSON DNS record → DNS RR conversion
 │   │   └── misc.go          # NFD name validation
 │   └── zones/
-│       └── algo.xyz          # Embedded root zone file for algo.xyz
+│       ├── algo.xyz         # Embedded root zone file for algo.xyz (mainnet)
+│       └── dotalgo.io       # Embedded root zone file for dotalgo.io (testnet)
 └── docs/
-    └── NFD_DNS_USER_GUIDE.md # User guide for configuring DNS records on NFDs
+    ├── NFD_DNS_USER_GUIDE.md # User guide for configuring DNS records on NFDs
+    └── psl_update_docs.md    # Runbook for the algo.xyz Public Suffix List submission
 ```
 
 ## Key Interfaces
@@ -158,14 +170,19 @@ type NfdFetcher interface {
 
 ## Plugin Chain
 
-The CoreDNS plugin chain processes requests in this order:
+Requests are processed in this order:
 
-`rewrite` → `nfd` → `cache` → `file` (embedded zones) → `forward` (Cloudflare DNS)
+`rewrite` → `nfd` → `file` (embedded zones)
 
 - **rewrite**: Strips/restores the `.xyz` TLD suffix
 - **nfd**: Resolves NFD names from blockchain data
 - **file**: Serves root zone queries (NS, SOA) from embedded zone files
-- **forward**: Resolves external CNAME targets via Cloudflare `1.1.1.1`
+
+Two details the arrow diagram hides. `nfd` is the **last** entry in `dnsserver.Directives`,
+and the `file` plugin is wired directly as `NfdPlugin.Next` rather than sitting later in a
+flat chain. The Cloudflare forwarder is **not** in the chain at all — it is a separate
+handler on `NfdPlugin.Forwarder`, called selectively through a `nonwriter` when an
+out-of-zone name (typically a CNAME target) has to be resolved.
 
 ## Zone
 
