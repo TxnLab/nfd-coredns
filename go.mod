@@ -3,7 +3,7 @@ module github.com/TxnLab/nfd-coredns
 go 1.26
 
 require (
-	github.com/algorand/go-algorand-sdk/v2 v2.12.0
+	github.com/algorand/go-algorand-sdk/v2 v2.13.0
 	github.com/coredns/caddy v1.1.4
 	github.com/coredns/coredns v1.14.7
 	github.com/hashicorp/golang-lru/v2 v2.0.7
@@ -13,6 +13,8 @@ require (
 )
 
 require (
+	filippo.io/edwards25519 v1.2.0 // indirect
+	github.com/algorand/falcon v0.1.0 // indirect
 	github.com/algorand/go-codec/codec v1.1.10 // indirect
 	github.com/apparentlymart/go-cidr v1.1.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
