@@ -16,6 +16,31 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestNameHasOtherThanCNAME(t *testing.T) {
+	rrs := []JsonRr{
+		{Name: "club.algo.", Type: "cname", RrData: []string{"site.netlify.app."}},
+		{Name: "club.algo.", Type: "mx", RrData: []string{"0 mx.example.com."}},
+		{Name: "www.club.algo.", Type: "CNAME", RrData: []string{"site.netlify.app."}},
+		{Name: "api.club.algo.", Type: "A", RrData: []string{"1.2.3.4"}},
+	}
+	tests := []struct {
+		name  string
+		qname string
+		want  bool
+	}{
+		{"CNAME plus MX", "club.algo.", true},
+		{"case-insensitive name", "CLUB.algo.", true},
+		{"CNAME only", "www.club.algo.", false},
+		{"no CNAME, other type", "api.club.algo.", true},
+		{"name absent", "missing.club.algo.", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, NameHasOtherThanCNAME(rrs, tt.qname))
+		})
+	}
+}
+
 func TestMergeJsonRrrs(t *testing.T) {
 	tests := []struct {
 		name    string

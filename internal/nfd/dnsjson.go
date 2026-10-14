@@ -76,6 +76,18 @@ func NameExistsInJsonRRs(jsonRecords []JsonRr, queryName string) bool {
 	return false
 }
 
+// NameHasOtherThanCNAME reports whether the given name has any record whose type
+// is not CNAME. A CNAME that shares its name with such records is served
+// ALIAS-style (flattened) rather than emitted - see NfdPlugin.Lookup.
+func NameHasOtherThanCNAME(jsonRecords []JsonRr, queryName string) bool {
+	for _, jsonRecord := range jsonRecords {
+		if strings.EqualFold(jsonRecord.Name, queryName) && !strings.EqualFold(jsonRecord.Type, "CNAME") {
+			return true
+		}
+	}
+	return false
+}
+
 // DnsRRsFromJsonRRs returns RR's that match the given name and type (from pre-merged root/segment data)
 func DnsRRsFromJsonRRs(jsonRecords []JsonRr, queryName string, rrType uint16) ([]dns.RR, error) {
 	var (

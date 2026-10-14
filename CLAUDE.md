@@ -69,7 +69,7 @@ flat list:
 - `NfdPlugin.Next` **is** the `file` plugin, holding the embedded zones (`setup.go:90-95`).
 - `NfdPlugin.Forwarder` is a **separate** `forward` handler pointed at `1.1.1.1:53`
   (`setup.go:99-101`), invoked selectively through a `nonwriter` in `LookupViaForwarder`
-  (`nfd.go:332-346`) — it is *not* chained after `file`.
+  (`nfd.go:422-436`) — it is *not* chained after `file`.
 
 ### Key Files
 
@@ -123,40 +123,40 @@ Behavior that is easy to break and not obvious from a single file:
 
 1. **The supported-qtype allow-list is in `nfd.go`, not `dnsjson.go`.** There are two
    mirrored `switch qtype` fallthrough chains — the admission gate in `Lookup`
-   (`nfd.go:155-178`) and the dispatch in `Query` (`nfd.go:306-329`). **Edit both together.**
+   (`nfd.go:177-200`) and the dispatch in `Query` (`nfd.go:396-419`). **Edit both together.**
    `DnsRRsFromJsonRRs` is entirely type-agnostic: it composes a zone-file line and calls
    `dns.NewRR`. Current set: SOA, NS, CAA, CNAME, TXT, MX, SRV, CERT, A, AAAA. Anything
-   else returns **NOTIMP** (`nfd.go:115-116`), including HTTPS/SVCB and ANY.
+   else returns **NOTIMP** (`nfd.go:137-138`), including HTTPS/SVCB and ANY.
 
-2. **NS is intercepted before record matching** (`nfd.go:229-238`). NFD subdomains are not
+2. **NS is intercepted before record matching** (`nfd.go:245-256`). NFD subdomains are not
    delegated zones, so a user-stored NS record is never servable — it only counts toward
    the name-exists check. NS returns NODATA/NXDOMAIN with the zone SOA per RFC 2308.
 
-3. **NXDOMAIN vs NODATA** hinges on `NameExistsInJsonRRs` (`nfd.go:284-297`,
+3. **NXDOMAIN vs NODATA** hinges on `NameExistsInJsonRRs` (`nfd.go:329-339`,
    `dnsjson.go:70-77`): name has records of *another* type → NODATA (NOERROR); name has no
    records at all → NXDOMAIN. Both carry the SOA from `zoneSOA`, extracted from the server
    block's own embedded zone at `setup.go:83-87`.
 
-4. **`_`-prefixed labels in the NFD-name position are never NFD lookups.** `nfd.go:202-204`
+4. **`_`-prefixed labels in the NFD-name position are never NFD lookups.** `nfd.go:224-226`
    returns `Result.Delegation` for names like `_psl.algo` / `_acme-challenge.algo`, which
-   `ServeDNS` (`nfd.go:76-89`) rewrites back to the zone origin and hands to the `file`
+   `ServeDNS` (`nfd.go:98-111`) rewrites back to the zone origin and hands to the `file`
    plugin. This is *not* a DNS NS referral. Note `_dnslink.patrick.algo` is unaffected —
    the check looks at the second-to-last label.
 
 5. **"Delegated segment" means NFD ownership, not DNS delegation.** `nfdrr.go:131-160`: a
    segment owned by a different account serves *only* its own records; a same-owner segment
    merges with the root, root winning on name+type conflict (`MergeJsonRrrs`,
-   `dnsjson.go:188-206`). Either way a flat `[]JsonRr` is returned and no NS referral is
+   `dnsjson.go:200-218`). Either way a flat `[]JsonRr` is returned and no NS referral is
    ever emitted.
 
-6. **`ConvertOriginRefs` rewrites `Name` only — never `RrData`** (`dnsjson.go:143-186`).
+6. **`ConvertOriginRefs` rewrites `Name` only — never `RrData`** (`dnsjson.go:155-198`).
    Consequences: (a) every record is force-rooted under the owning NFD's FQDN, so
    out-of-scope and cross-root names get re-rooted rather than served; (b) `@` in *rdata*
    is **not** an origin reference — it reaches `dns.NewRR` verbatim and resolves against
    origin `.`, so `"rrData": ["@"]` silently becomes a CNAME to the DNS root. rdata must be
    a fully-qualified name.
 
-7. **Name matching is exact — there is no wildcard support.** `dnsjson.go:90` uses
+7. **Name matching is exact — there is no wildcard support.** `dnsjson.go:102` uses
    `strings.EqualFold` on the full name, so a stored `*.@` matches only the literal name
    `*.<nfd>.`, never arbitrary subdomains.
 
@@ -169,15 +169,27 @@ Behavior that is easy to break and not obvious from a single file:
 
 9. **Segment depth violations return SERVFAIL, not NXDOMAIN.** `ErrNfdTooManySegments`
    (`nfdrr.go:91-95`) is not `ErrNfdNotFound`, so it falls into the generic error branch at
-   `nfd.go:218-221`. The depth budget is 4 labels after discounting the *leading contiguous
+   `nfd.go:240-243`. The depth budget is 4 labels after discounting the *leading contiguous
    run* of `_`-prefixed labels (`nfdrr.go:87-91`).
 
-10. **CNAMEs are chased for every qtype** (`nfd.go:242-273`), internally for `*.algo`
-    targets and via the 1.1.1.1 forwarder otherwise, with both the CNAME and the resolved
-    answer placed in ANSWER. A side effect is that apex CNAMEs work, unlike in normal DNS.
+10. **CNAME handling splits on whether the name holds anything else** (`nfd.go:258-319`).
+    - *CNAME-only name:* the CNAME is chased for every qtype, internally for `*.algo` targets
+      and via the 1.1.1.1 forwarder otherwise, with both the CNAME and the resolved answer
+      placed in ANSWER. A side effect is that apex CNAMEs work, unlike in normal DNS.
+    - *CNAME plus other records* (`NameHasOtherThanCNAME`, e.g. apex CNAME + MX/TXT): the
+      CNAME is **never emitted**, because a resolver that cached it would follow it for MX/TXT
+      and never ask us. A/AAAA are flattened ALIAS-style from the target by `flattenCNAME`
+      (stored A/AAAA win; TTL = min of CNAME and target). Other qtypes are answered from
+      stored records only. A CNAME query gets NODATA. A failed target lookup is SERVFAIL,
+      never NODATA, so a transient blip isn't negatively cached (same reasoning as gotcha 13).
+    - Internal chasing tracks the visited chain in the context (`nextCNAMEHop`). A revisited
+      name or a chain past `maxCNAMEHops` is SERVFAIL at that hop rather than recursing
+      until the stack overflows. In the CNAME-only path the parent's existing
+      "target failed → return CNAME only" branch then applies, so a→b→a answers `a→b`
+      and a self-loop answers SERVFAIL.
 
 11. **One unparseable rdata takes down the whole name.** `DnsRRsFromJsonRRs` returns on the
-    first `dns.NewRR` failure (`dnsjson.go:114-117`) → SERVFAIL (`nfd.go:277-283`). Because
+    first `dns.NewRR` failure (`dnsjson.go:126-129`) → SERVFAIL (`nfd.go:322-328`). Because
     of the unconditional CNAME pre-query, a malformed CNAME breaks *every* qtype at that name.
 
 12. **Negative results are cached too.** Not-found NFDs are stored as an empty `Properties{}`
@@ -218,7 +230,7 @@ The Corefile uses a `rewrite` rule to convert external queries:
 - External: `patrick.algo.xyz.` → Internal: `patrick.algo.`
 - Responses are converted back automatically
 
-`rewriteToZoneOrigin` (`nfd.go:125-144`) does the reverse for fall-through: it maps the
+`rewriteToZoneOrigin` (`nfd.go:147-166`) does the reverse for fall-through: it maps the
 internal `*.algo` form back to the server block's `zoneOrigin` so the `file` plugin can
 match its embedded zone and produce a proper NXDOMAIN+SOA.
 
@@ -232,7 +244,7 @@ match its embedded zone and produce a proper NXDOMAIN+SOA.
 | `ErrNfdNotOwned` | `fetch.go:39` | **Declared but never referenced** — same, via `IsNfdOwned` |
 | `ErrNfdTooManySegments` | `nfdrr.go:25` | Depth limit → SERVFAIL |
 | `ErrInvalidDNSJson` | `dnsjson.go:19` | Unmarshal failure of the on-chain `dns` property |
-| `errNotImplemented` | `nfd.go:55` | Unexported, package `main`; unsupported qtype → NOTIMP |
+| `errNotImplemented` | `nfd.go:64` | Unexported, package `main`; unsupported qtype → NOTIMP |
 
 ## Tests
 

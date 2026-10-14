@@ -154,11 +154,21 @@ DNS service resolves CNAMEs itself and returns both the CNAME and its resolved a
 hostname. The target is followed for every query type, internally for other `.algo` names
 and via an upstream resolver for external ones.
 
-**But a CNAME shadows every other record type at the same name.** The service checks a name
-for a CNAME before answering any other query type, and returns it if found. So a CNAME at
-`@` prevents your `@` MX, TXT and A records from ever being served — silently breaking email
-and domain verification at your apex. Use an apex CNAME only when the apex has no other
-records; otherwise use an A record there.
+**A CNAME next to other records is served as an alias.** Standard DNS forbids a CNAME
+sharing its name with any other record. When a name has a CNAME *and* other records (for
+example an `@` CNAME to your web host plus `@` MX and TXT for email), the service never
+returns the CNAME itself:
+- A and AAAA queries return the CNAME target's addresses under your own name (unless you
+  also stored an A/AAAA record there, which wins).
+- Every other type (MX, TXT, …) is answered from your stored records.
+- A CNAME query returns no data.
+
+So email and domain verification at your apex keep working alongside an apex CNAME. If your
+host gives you a fixed IP for apex domains (Netlify: `75.2.60.5`), an A record is still the
+better choice: alias addresses are looked up from the NFD DNS server's location, not your
+visitors', so CDN hosts may route visitors to a farther-away edge. Hosting dashboards that
+check specifically for a CNAME may also report the alias as misconfigured even though the
+site serves fine.
 
 Targets must be fully qualified with a trailing dot. The same check makes a malformed CNAME
 especially costly: one bad CNAME makes *every* record type at that name fail.
@@ -483,8 +493,8 @@ A segment (e.g. `relay.belt.algo`) is its own NFD with its own owner, and it **a
 
 5. **No DNSSEC**: Responses are authoritative but unsigned.
 
-6. **A CNAME shadows other types at the same name**: a CNAME is checked before any other
-   record type, so a CNAME at `@` prevents your apex MX, TXT and A records from being served.
+6. **A CNAME next to other records is flattened**: the CNAME itself is never returned; A/AAAA
+   come from its target and every other type from your stored records (see CNAME above).
 
 7. **Requires a V3 NFD**: Explicit DNS records need contract version 3.0 or later. On an
    older NFD, configured DNS records will not resolve.

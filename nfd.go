@@ -8,6 +8,7 @@ package main
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 
 	"github.com/miekg/dns"
@@ -49,11 +50,32 @@ const (
 	NotImplemented
 )
 
+// maxCNAMEHops bounds internal CNAME chasing so a looping chain
+// (foo.algo -> foo.algo) terminates instead of recursing until the goroutine
+// stack overflows and kills the process.
+const maxCNAMEHops = 8
+
+// cnameChainKey holds the names already traversed by internal CNAME chasing.
+type cnameChainKey struct{}
+
 var (
 	log = clog.NewWithPlugin(pluginName)
 
 	errNotImplemented = errors.New("not implemented")
 )
+
+// nextCNAMEHop returns a context recording the hop qname -> target, or false if
+// the hop would exceed maxCNAMEHops or revisit a name already in the chain.
+func nextCNAMEHop(ctx context.Context, qname, target string) (context.Context, bool) {
+	visited, _ := ctx.Value(cnameChainKey{}).([]string)
+	visited = append(slices.Clip(visited), qname)
+	if len(visited) > maxCNAMEHops || slices.ContainsFunc(visited, func(name string) bool {
+		return strings.EqualFold(name, target)
+	}) {
+		return ctx, false
+	}
+	return context.WithValue(ctx, cnameChainKey{}, visited), true
+}
 
 // Name implements the CoreDNS plugin.Handler interface.
 func (n *NfdPlugin) Name() string { return pluginName }
@@ -227,50 +249,73 @@ func (n *NfdPlugin) Lookup(ctx context.Context, state request.Request) ([]dns.RR
 	// NXDOMAIN/NODATA decision below: existing name -> NODATA (NOERROR),
 	// missing name -> NXDOMAIN.
 	if qtype == dns.TypeNS {
-		var soaNs []dns.RR
-		if n.zoneSOA != nil {
-			soaNs = []dns.RR{n.zoneSOA}
-		}
 		if nfd.NameExistsInJsonRRs(mergedJsonRrs, qname) {
-			return nil, soaNs, nil, Success
+			return nil, n.soaAuthority(), nil, Success
 		}
-		return nil, soaNs, nil, NameError
+		return nil, n.soaAuthority(), nil, NameError
 	}
 
-	// If we aren't asking for a CNAME then check for one to see if we need
-	// to recurse
-	if qtype != dns.TypeCNAME {
-		cnameRrs, err := n.Query(mergedJsonRrs, qname, dns.TypeCNAME)
-		if err != nil {
-			return nil, nil, nil, ServerFailure
-		}
-		if len(cnameRrs) > 0 {
-			// got cname - ie: user queried foo.bar (an A qtype) - has cname - and foo.bar points to foo.baz
-			// so we'll do original A query on foo.baz
-			answerRrs = append(answerRrs, cnameRrs...)
-
+	cnameRrs, err := n.Query(mergedJsonRrs, qname, dns.TypeCNAME)
+	if err != nil {
+		return nil, nil, nil, ServerFailure
+	}
+	if len(cnameRrs) > 0 && nfd.NameHasOtherThanCNAME(mergedJsonRrs, qname) {
+		// A CNAME sharing its name with other records (typically an apex CNAME
+		// next to MX/TXT) is never emitted: a resolver that cached it would
+		// follow it for every qtype at the name and never ask us for the MX/TXT.
+		// Serve it ALIAS-style instead - A/AAAA come from the target, every
+		// other qtype is answered from the stored records alone.
+		switch qtype {
+		case dns.TypeCNAME:
+			return nil, n.soaAuthority(), nil, Success
+		case dns.TypeA, dns.TypeAAAA:
+			stored, err := n.Query(mergedJsonRrs, qname, qtype)
+			if err != nil {
+				return nil, nil, nil, ServerFailure
+			}
+			if len(stored) > 0 {
+				return stored, nil, nil, Success
+			}
 			cnameRec, ok := cnameRrs[0].(*dns.CNAME)
 			if !ok {
 				log.Errorf("error converting CNAME to dns.RR: val: %v", cnameRrs[0])
 				return nil, nil, nil, ServerFailure
 			}
-			log.Infof("cnameRec: %#+v", cnameRec)
-			targetReq := state.Req.Copy()
-			targetReq.Question[0].Name = cnameRec.Target
-			targetReq.Question[0].Qtype = qtype
-			targetReqState := request.Request{W: state.W, Req: targetReq}
-			// recurse...
-			targetAnswerRrs, targetAuthorityRrs, targetAdditionalRrs, targetResult := n.Lookup(ctx, targetReqState)
-			if targetResult == Success {
-				log.Infof("cname derived lookup succeeded")
-				answerRrs = append(answerRrs, targetAnswerRrs...)
-				authorityRrs = append(authorityRrs, targetAuthorityRrs...)
-				additionalRrs = append(additionalRrs, targetAdditionalRrs...)
-				return answerRrs, authorityRrs, additionalRrs, Success
-			}
-			log.Warning("cname derived lookup failed - returning CNAME only")
+			return n.flattenCNAME(ctx, state, cnameRec)
+		default:
+			// stored records only - answered by the normal match below
+		}
+	} else if qtype != dns.TypeCNAME && len(cnameRrs) > 0 {
+		// got cname - ie: user queried foo.bar (an A qtype) - has cname - and foo.bar points to foo.baz
+		// so we'll do original A query on foo.baz
+		answerRrs = append(answerRrs, cnameRrs...)
+
+		cnameRec, ok := cnameRrs[0].(*dns.CNAME)
+		if !ok {
+			log.Errorf("error converting CNAME to dns.RR: val: %v", cnameRrs[0])
+			return nil, nil, nil, ServerFailure
+		}
+		log.Infof("cnameRec: %#+v", cnameRec)
+		hopCtx, ok := nextCNAMEHop(ctx, qname, cnameRec.Target)
+		if !ok {
+			log.Warningf("CNAME loop or chain too long at %s -> %s", qname, cnameRec.Target)
+			return nil, nil, nil, ServerFailure
+		}
+		targetReq := state.Req.Copy()
+		targetReq.Question[0].Name = cnameRec.Target
+		targetReq.Question[0].Qtype = qtype
+		targetReqState := request.Request{W: state.W, Req: targetReq}
+		// recurse...
+		targetAnswerRrs, targetAuthorityRrs, targetAdditionalRrs, targetResult := n.Lookup(hopCtx, targetReqState)
+		if targetResult == Success {
+			log.Infof("cname derived lookup succeeded")
+			answerRrs = append(answerRrs, targetAnswerRrs...)
+			authorityRrs = append(authorityRrs, targetAuthorityRrs...)
+			additionalRrs = append(additionalRrs, targetAdditionalRrs...)
 			return answerRrs, authorityRrs, additionalRrs, Success
 		}
+		log.Warning("cname derived lookup failed - returning CNAME only")
+		return answerRrs, authorityRrs, additionalRrs, Success
 	}
 
 	// Match the query type against our combined records - name and qtype have to match
@@ -286,10 +331,7 @@ func (n *NfdPlugin) Lookup(ctx context.Context, state request.Request) ([]dns.RR
 		// Per RFC 2308: respond authoritatively with SOA in authority section.
 		// If the qname has any record (different type) it's NODATA (NOERROR);
 		// otherwise the name doesn't exist in this NFD's zone -> NXDOMAIN.
-		var soaNs []dns.RR
-		if n.zoneSOA != nil {
-			soaNs = []dns.RR{n.zoneSOA}
-		}
+		soaNs := n.soaAuthority()
 		if nfd.NameExistsInJsonRRs(mergedJsonRrs, qname) {
 			return nil, soaNs, nil, Success
 		}
@@ -298,6 +340,54 @@ func (n *NfdPlugin) Lookup(ctx context.Context, state request.Request) ([]dns.RR
 	answerRrs = append(answerRrs, rrs...)
 
 	return answerRrs, authorityRrs, additionalRrs, Success
+}
+
+// soaAuthority returns the zone SOA for the authority section of a negative
+// response (RFC 2308), or nil if the server block has none.
+func (n *NfdPlugin) soaAuthority() []dns.RR {
+	if n.zoneSOA == nil {
+		return nil
+	}
+	return []dns.RR{n.zoneSOA}
+}
+
+// flattenCNAME answers an A/AAAA query at a name whose CNAME shares the name
+// with other records: the target's addresses are returned under the queried
+// name (ALIAS-style) and the CNAME itself is never emitted. If the target has
+// no addresses of that type the answer is NODATA - never a bare CNAME. A target
+// lookup failure is SERVFAIL rather than NODATA so a transient algod/forwarder
+// blip is retried instead of negatively cached.
+func (n *NfdPlugin) flattenCNAME(ctx context.Context, state request.Request, cname *dns.CNAME) ([]dns.RR, []dns.RR, []dns.RR, Result) {
+	qname, qtype := state.Name(), state.QType()
+	hopCtx, ok := nextCNAMEHop(ctx, qname, cname.Target)
+	if !ok {
+		log.Warningf("CNAME loop or chain too long flattening %s -> %s", qname, cname.Target)
+		return nil, nil, nil, ServerFailure
+	}
+	targetReq := state.Req.Copy()
+	targetReq.Question[0].Name = cname.Target
+	targetAnswerRrs, _, _, targetResult := n.Lookup(hopCtx, request.Request{W: state.W, Req: targetReq})
+	if targetResult == ServerFailure {
+		return nil, nil, nil, ServerFailure
+	}
+
+	var answerRrs []dns.RR
+	if targetResult == Success {
+		for _, rr := range targetAnswerRrs {
+			if rr.Header().Rrtype != qtype {
+				continue
+			}
+			flat := dns.Copy(rr)
+			flat.Header().Name = qname
+			flat.Header().Ttl = min(flat.Header().Ttl, cname.Hdr.Ttl)
+			answerRrs = append(answerRrs, flat)
+		}
+	}
+	if len(answerRrs) == 0 {
+		log.Warningf("flattening %s -> %s found no %s records", qname, cname.Target, dns.TypeToString[qtype])
+		return nil, n.soaAuthority(), nil, Success
+	}
+	return answerRrs, nil, nil, Success
 }
 
 // Query the query type against our combined records - name and qtype have to match

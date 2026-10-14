@@ -8,6 +8,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"testing"
 
@@ -729,6 +730,263 @@ func TestCNAMERecursion(t *testing.T) {
 			if tt.validateAnswers != nil {
 				tt.validateAnswers(t, answer)
 			}
+		})
+	}
+}
+
+// TestCNAMEFlattening covers a CNAME that shares its name with other records
+// (the algoclub.algo report: apex CNAME to netlify next to MX/TXT). The CNAME
+// must never be emitted - otherwise resolvers cache it and follow it for the
+// MX/TXT queries - and A/AAAA are synthesized from the target instead.
+func TestCNAMEFlattening(t *testing.T) {
+	soa, err := dns.NewRR("algo.xyz. 14400 IN SOA ns1.algo.xyz. hostmaster.algo.xyz. 1 4h 1h 7d 4h")
+	require.NoError(t, err)
+	externalA, err := dns.NewRR("site.netlify.app. 20 IN A 75.2.60.5")
+	require.NoError(t, err)
+
+	mixedApex := []nfd.JsonRr{
+		{Name: "club.algo.", Type: "cname", RrData: []string{"site.netlify.app."}, Ttl: 3600},
+		{Name: "club.algo.", Type: "mx", RrData: []string{"0 mx1.forwardemail.net.", "0 mx2.forwardemail.net."}, Ttl: 3600},
+		{Name: "club.algo.", Type: "txt", RrData: []string{"forward-email=someone@example.com"}, Ttl: 3600},
+	}
+
+	tests := []struct {
+		name            string
+		qname           string
+		qtype           uint16
+		rrs             []nfd.JsonRr
+		forwarder       *mockForwarder
+		expectedResult  Result
+		validateAnswers func(t *testing.T, answers []dns.RR)
+		expectSOA       bool
+	}{
+		{
+			name:           "MX served from stored records",
+			qname:          "club.algo.",
+			qtype:          dns.TypeMX,
+			rrs:            mixedApex,
+			expectedResult: Success,
+			validateAnswers: func(t *testing.T, answers []dns.RR) {
+				require.Len(t, answers, 2)
+				for _, rr := range answers {
+					_, ok := rr.(*dns.MX)
+					assert.True(t, ok, "expected only MX, got %s", rr)
+				}
+			},
+		},
+		{
+			name:           "TXT served from stored records",
+			qname:          "club.algo.",
+			qtype:          dns.TypeTXT,
+			rrs:            mixedApex,
+			expectedResult: Success,
+			validateAnswers: func(t *testing.T, answers []dns.RR) {
+				require.Len(t, answers, 1)
+				txt, ok := answers[0].(*dns.TXT)
+				require.True(t, ok)
+				assert.Equal(t, []string{"forward-email=someone@example.com"}, txt.Txt)
+			},
+		},
+		{
+			name:           "A flattened from external target",
+			qname:          "club.algo.",
+			qtype:          dns.TypeA,
+			rrs:            mixedApex,
+			forwarder:      &mockForwarder{answer: []dns.RR{externalA}, rcode: dns.RcodeSuccess},
+			expectedResult: Success,
+			validateAnswers: func(t *testing.T, answers []dns.RR) {
+				require.Len(t, answers, 1)
+				a, ok := answers[0].(*dns.A)
+				require.True(t, ok, "expected A, got %s", answers[0])
+				assert.Equal(t, "club.algo.", a.Hdr.Name)
+				assert.Equal(t, "75.2.60.5", a.A.String())
+				assert.Equal(t, uint32(20), a.Hdr.Ttl, "TTL should be min(cname, target)")
+				assert.Equal(t, "site.netlify.app.", externalA.Header().Name, "forwarder RR must not be mutated")
+			},
+		},
+		{
+			name:  "A flattened from internal target",
+			qname: "club.algo.",
+			qtype: dns.TypeA,
+			rrs: []nfd.JsonRr{
+				{Name: "club.algo.", Type: "cname", RrData: []string{"other.algo."}, Ttl: 300},
+				{Name: "club.algo.", Type: "mx", RrData: []string{"0 mx.example.com."}, Ttl: 300},
+				{Name: "other.algo.", Type: "a", RrData: []string{"192.168.1.1"}, Ttl: 600},
+			},
+			expectedResult: Success,
+			validateAnswers: func(t *testing.T, answers []dns.RR) {
+				require.Len(t, answers, 1)
+				a, ok := answers[0].(*dns.A)
+				require.True(t, ok, "expected A, got %s", answers[0])
+				assert.Equal(t, "club.algo.", a.Hdr.Name)
+				assert.Equal(t, "192.168.1.1", a.A.String())
+				assert.Equal(t, uint32(300), a.Hdr.Ttl)
+			},
+		},
+		{
+			name:  "stored A wins over flattening",
+			qname: "club.algo.",
+			qtype: dns.TypeA,
+			rrs: append([]nfd.JsonRr{
+				{Name: "club.algo.", Type: "a", RrData: []string{"10.0.0.1"}, Ttl: 300},
+			}, mixedApex...),
+			forwarder:      &mockForwarder{answer: []dns.RR{externalA}, rcode: dns.RcodeSuccess},
+			expectedResult: Success,
+			validateAnswers: func(t *testing.T, answers []dns.RR) {
+				require.Len(t, answers, 1)
+				a, ok := answers[0].(*dns.A)
+				require.True(t, ok)
+				assert.Equal(t, "10.0.0.1", a.A.String())
+			},
+		},
+		{
+			name:           "AAAA with no target addresses is NODATA",
+			qname:          "club.algo.",
+			qtype:          dns.TypeAAAA,
+			rrs:            mixedApex,
+			forwarder:      &mockForwarder{answer: []dns.RR{externalA}, rcode: dns.RcodeSuccess},
+			expectedResult: Success,
+			expectSOA:      true,
+		},
+		{
+			name:           "CNAME query is NODATA",
+			qname:          "club.algo.",
+			qtype:          dns.TypeCNAME,
+			rrs:            mixedApex,
+			expectedResult: Success,
+			expectSOA:      true,
+		},
+		{
+			name:           "SRV with none stored is NODATA",
+			qname:          "club.algo.",
+			qtype:          dns.TypeSRV,
+			rrs:            mixedApex,
+			expectedResult: Success,
+			expectSOA:      true,
+		},
+		{
+			name:           "target lookup failure is SERVFAIL, not cached NODATA",
+			qname:          "club.algo.",
+			qtype:          dns.TypeA,
+			rrs:            mixedApex,
+			forwarder:      &mockForwarder{rcode: dns.RcodeServerFailure},
+			expectedResult: ServerFailure,
+		},
+		{
+			name:  "self-referencing CNAME is SERVFAIL",
+			qname: "club.algo.",
+			qtype: dns.TypeA,
+			rrs: []nfd.JsonRr{
+				{Name: "club.algo.", Type: "cname", RrData: []string{"club.algo."}, Ttl: 300},
+				{Name: "club.algo.", Type: "mx", RrData: []string{"0 mx.example.com."}, Ttl: 300},
+			},
+			expectedResult: ServerFailure,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fwd := tt.forwarder
+			if fwd == nil {
+				fwd = &mockForwarder{rcode: dns.RcodeServerFailure}
+			}
+			nfdPlugin := &NfdPlugin{
+				NfdHandler: &mockNfdRRHandler{rrs: tt.rrs},
+				Forwarder:  fwd,
+				zoneSOA:    soa,
+			}
+
+			req := new(dns.Msg)
+			req.SetQuestion(tt.qname, tt.qtype)
+			state := request.Request{W: &testResponseWriter{}, Req: req}
+
+			answer, authority, _, result := nfdPlugin.Lookup(context.Background(), state)
+
+			assert.Equal(t, tt.expectedResult, result)
+			for _, rr := range answer {
+				_, isCNAME := rr.(*dns.CNAME)
+				assert.False(t, isCNAME, "CNAME must never be emitted at a mixed name: %s", rr)
+			}
+			if tt.expectSOA {
+				assert.Empty(t, answer)
+				require.Len(t, authority, 1)
+				_, ok := authority[0].(*dns.SOA)
+				assert.True(t, ok, "authority should be SOA RR")
+			}
+			if tt.validateAnswers != nil {
+				tt.validateAnswers(t, answer)
+			}
+		})
+	}
+}
+
+// TestCNAMELoopTerminates verifies plain (non-mixed) CNAME chasing stops on a
+// revisited name or at maxCNAMEHops instead of recursing until the stack
+// overflows, and never emits duplicate CNAMEs.
+func TestCNAMELoopTerminates(t *testing.T) {
+	// c0 -> c1 -> ... -> c10 (A); only maxCNAMEHops hops are followed.
+	var longChain []nfd.JsonRr
+	for i := range 10 {
+		longChain = append(longChain, nfd.JsonRr{
+			Name: fmt.Sprintf("c%d.algo.", i), Type: "cname", RrData: []string{fmt.Sprintf("c%d.algo.", i+1)}, Ttl: 300,
+		})
+	}
+	longChain = append(longChain, nfd.JsonRr{Name: "c10.algo.", Type: "a", RrData: []string{"192.168.1.1"}, Ttl: 300})
+
+	tests := []struct {
+		name           string
+		qname          string
+		rrs            []nfd.JsonRr
+		expectedResult Result
+		expectedCNAMEs []string // targets, in answer order
+	}{
+		{
+			name:  "self loop is SERVFAIL",
+			qname: "loop.algo.",
+			rrs: []nfd.JsonRr{
+				{Name: "loop.algo.", Type: "cname", RrData: []string{"loop.algo."}, Ttl: 300},
+			},
+			expectedResult: ServerFailure,
+		},
+		{
+			name:  "two-name loop stops at the revisit",
+			qname: "a.algo.",
+			rrs: []nfd.JsonRr{
+				{Name: "a.algo.", Type: "cname", RrData: []string{"b.algo."}, Ttl: 300},
+				{Name: "b.algo.", Type: "cname", RrData: []string{"a.algo."}, Ttl: 300},
+			},
+			expectedResult: Success,
+			expectedCNAMEs: []string{"b.algo."},
+		},
+		{
+			name:           "long chain is cut at maxCNAMEHops",
+			qname:          "c0.algo.",
+			rrs:            longChain,
+			expectedResult: Success,
+			expectedCNAMEs: []string{"c1.algo.", "c2.algo.", "c3.algo.", "c4.algo.", "c5.algo.", "c6.algo.", "c7.algo.", "c8.algo."},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			nfdPlugin := &NfdPlugin{
+				NfdHandler: &mockNfdRRHandler{rrs: tt.rrs},
+				Forwarder:  &mockForwarder{rcode: dns.RcodeServerFailure},
+			}
+			req := new(dns.Msg)
+			req.SetQuestion(tt.qname, dns.TypeA)
+			state := request.Request{W: &testResponseWriter{}, Req: req}
+
+			answer, _, _, result := nfdPlugin.Lookup(context.Background(), state)
+
+			assert.Equal(t, tt.expectedResult, result)
+			var targets []string
+			for _, rr := range answer {
+				cname, ok := rr.(*dns.CNAME)
+				require.True(t, ok, "expected only CNAMEs, got %s", rr)
+				targets = append(targets, cname.Target)
+			}
+			assert.Equal(t, tt.expectedCNAMEs, targets)
 		})
 	}
 }
