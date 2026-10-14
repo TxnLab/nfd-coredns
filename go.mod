@@ -3,7 +3,7 @@ module github.com/TxnLab/nfd-coredns
 go 1.26
 
 require (
-	github.com/algorand/go-algorand-sdk/v2 v2.12.0
+	github.com/algorand/go-algorand-sdk/v2 v2.13.0
 	github.com/coredns/caddy v1.1.4
 	github.com/coredns/coredns v1.14.7
 	github.com/hashicorp/golang-lru/v2 v2.0.7
@@ -13,6 +13,8 @@ require (
 )
 
 require (
+	filippo.io/edwards25519 v1.2.0 // indirect
+	github.com/algorand/falcon v0.1.0 // indirect
 	github.com/algorand/go-codec/codec v1.1.10 // indirect
 	github.com/apparentlymart/go-cidr v1.1.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
@@ -43,14 +45,14 @@ require (
 	go.uber.org/mock v0.6.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	golang.org/x/crypto v0.54.0 // indirect
-	golang.org/x/net v0.57.0 // indirect
+	golang.org/x/crypto v0.55.0 // indirect
+	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/text v0.40.0 // indirect
+	golang.org/x/text v0.41.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260803160001-6ac0973c030d // indirect
-	google.golang.org/grpc v1.83.0 // indirect
+	google.golang.org/grpc v1.83.2 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
