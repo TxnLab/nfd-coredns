@@ -11,6 +11,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -124,9 +125,16 @@ func (n *nfdFetcher) FetchNFD(ctx context.Context, nfdId uint64, internalOnly bo
 	// verified won't be that long - but once v2 it'll all be in single values
 	properties.UserDefined = MergeNFDProperties(properties.UserDefined)
 
+	return n.applyDnsPlaceholder(nfdId, properties)
+}
+
+// applyDnsPlaceholder enforces the v3 requirement for explicit dns/blueskydid properties and
+// replaces the dns property with a single apex A record pointing at AlgoXyzIp when the NFD is
+// expired, not owned, or has no dns records of its own.
+func (n *nfdFetcher) applyDnsPlaceholder(nfdId uint64, properties Properties) (Properties, error) {
 	// If v3 and expired, or if for sale - just treat as old-school redirect to home page and that's it.
 	shouldIgnoreProps := IsNFdExpired(properties) || !IsNfdOwned(nfdId, properties)
-	hasExplicitProps := properties.UserDefined["dns"] != "" || properties.Verified["blueskydid"] != ""
+	hasExplicitProps := hasDnsRecords(properties.UserDefined["dns"]) || properties.Verified["blueskydid"] != ""
 	if !shouldIgnoreProps && hasExplicitProps {
 		// Must be v3 for dns / blueskydid support
 		if !IsContractVersionAtLeast(properties.Internal["ver"], 3, 0) {
@@ -134,7 +142,7 @@ func (n *nfdFetcher) FetchNFD(ctx context.Context, nfdId uint64, internalOnly bo
 			return Properties{}, ErrNFdIncompatible
 		}
 	}
-	if shouldIgnoreProps || properties.UserDefined["dns"] == "" {
+	if shouldIgnoreProps || !hasDnsRecords(properties.UserDefined["dns"]) {
 		// expired, not owned, or.. doesn't have explicit dns etc records
 		// do old school url handling by composing fake DNS record so we just return A record of the name itself.
 		// ie: patrick.algo.xyz -> turns into A address of algo.xyz service (can be changed via corefile config block)
@@ -486,6 +494,22 @@ func IsNfdOwned(nfdAppId uint64, props Properties) bool {
 	}
 	nfdAccount := crypto.GetApplicationAddress(nfdAppId).String()
 	if props.Internal["owner"] == nfdAccount {
+		return false
+	}
+	return true
+}
+
+// hasDnsRecords reports whether the dns property holds at least one record. An empty value, or a
+// JSON empty list / null (as the NFD dashboard saves a cleared custom-DNS editor), counts as no
+// records so the NFD still gets the redirect placeholder rather than answering NXDOMAIN.
+// Malformed JSON counts as records so it still surfaces as ErrInvalidDNSJson downstream.
+func hasDnsRecords(dnsVal string) bool {
+	dnsVal = strings.TrimSpace(dnsVal)
+	if dnsVal == "" {
+		return false
+	}
+	var records []json.RawMessage
+	if err := json.Unmarshal([]byte(dnsVal), &records); err == nil && len(records) == 0 {
 		return false
 	}
 	return true

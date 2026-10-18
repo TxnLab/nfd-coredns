@@ -49,7 +49,7 @@ Name matching is exact and case-insensitive — **wildcard records are not suppo
 
 - **Segments**: NFDs support subdomains (segments), e.g. `relay.belt.algo`. A segment is its own NFD and always serves its own DNS records. When the segment shares the root NFD's owner, the root can extend it with sub-records (root wins on conflict); when it's owned by a different account, only that segment's own records are served for its subtree — an NFD-ownership boundary, where the plugin still answers authoritatively (no DNS NS delegation — see the Limitations section of [the user guide](docs/NFD_DNS_USER_GUIDE.md)).
 - **Bluesky integration**: If an NFD has a verified Bluesky DID, the plugin automatically generates an `_atproto` TXT record.
-- **Placeholder fallback**: An NFD returns a single apex A record pointing at the configurable `algoxyzip` address when it is expired, **listed for sale**, owned by its own app account, or simply has no `dns` property configured. Listing an NFD for sale therefore disables all of its DNS records.
+- **Placeholder fallback**: An NFD returns a single apex A record pointing at the configurable `algoxyzip` address when it is expired, **listed for sale**, owned by its own app account, or simply has no `dns` property configured (an empty `[]` list counts as none). Listing an NFD for sale therefore disables all of its DNS records.
 - **Two-level caching**: NFD properties and DNS RR sets are cached separately in TTL-based LRU caches (50K entries each).
 
 ### V2 vs V3 Contract Handling

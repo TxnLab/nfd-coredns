@@ -6,6 +6,7 @@
 package nfd
 
 import (
+	"maps"
 	"strconv"
 	"testing"
 	"time"
@@ -217,6 +218,94 @@ func TestIsNfdOwned(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := IsNfdOwned(tt.nfdAppId, tt.props)
 			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestHasDnsRecords(t *testing.T) {
+	tests := []struct {
+		name     string
+		dnsVal   string
+		expected bool
+	}{
+		{name: "empty", dnsVal: "", expected: false},
+		{name: "whitespace only", dnsVal: "   ", expected: false},
+		{name: "empty list", dnsVal: "[]", expected: false},
+		{name: "empty list with inner space", dnsVal: "[ ]", expected: false},
+		{name: "empty list with outer space", dnsVal: " [] ", expected: false},
+		{name: "json null", dnsVal: "null", expected: false},
+		{name: "one record", dnsVal: `[{"name":"@","type":"a","rrData":["1.2.3.4"]}]`, expected: true},
+		{name: "malformed json", dnsVal: "{bad", expected: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, hasDnsRecords(tt.dnsVal))
+		})
+	}
+}
+
+func TestApplyDnsPlaceholder(t *testing.T) {
+	const (
+		nfdAppId  = uint64(12345678)
+		owner     = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAY5HFKQ"
+		algoXyzIp = "10.1.2.3"
+		record    = `[{"name":"@","type":"cname","rrData":["example.com."]}]`
+	)
+	placeholder := `[ {"name":"@","type": "a","rrData": ["` + algoXyzIp + `"]} ]`
+	nfdAppAddress := crypto.GetApplicationAddress(nfdAppId).String()
+	fetcher := &nfdFetcher{AlgoXyzIp: algoXyzIp}
+	future := formatTimestamp(time.Now().Add(time.Hour).Unix())
+	past := formatTimestamp(time.Now().Add(-time.Hour).Unix())
+
+	tests := []struct {
+		name        string
+		internal    map[string]string
+		dns         *string
+		blueskydid  string
+		expectedDns string
+		expectedErr error
+	}{
+		{name: "v3 owned, dns absent", internal: map[string]string{"ver": "3.11"}, expectedDns: placeholder},
+		{name: "v3 owned, dns empty list", internal: map[string]string{"ver": "3.11"}, dns: new("[]"), expectedDns: placeholder},
+		{name: "v3 owned, dns null", internal: map[string]string{"ver": "3.11"}, dns: new("null"), expectedDns: placeholder},
+		{name: "v3 owned, dns record kept", internal: map[string]string{"ver": "3.11"}, dns: new(record), expectedDns: record},
+		{name: "v3 owned, empty list with blueskydid", internal: map[string]string{"ver": "3.11"}, dns: new("[]"), blueskydid: "did:plc:abc", expectedDns: placeholder},
+		{name: "v3 expired, dns record ignored", internal: map[string]string{"ver": "3.11", "expirationTime": past}, dns: new(record), expectedDns: placeholder},
+		{name: "v3 unexpired, dns record kept", internal: map[string]string{"ver": "3.11", "expirationTime": future}, dns: new(record), expectedDns: record},
+		{name: "v3 for sale, dns record ignored", internal: map[string]string{"ver": "3.11", "sellamt": "1000000"}, dns: new(record), expectedDns: placeholder},
+		{name: "v3 owned by own app account, dns record ignored", internal: map[string]string{"ver": "3.11", "owner": nfdAppAddress}, dns: new(record), expectedDns: placeholder},
+		{name: "v3.0 owned, dns record kept", internal: map[string]string{"ver": "3.0"}, dns: new(record), expectedDns: record},
+		{name: "v2 expired, dns record ignored not incompatible", internal: map[string]string{"ver": "2.12", "expirationTime": past}, dns: new(record), expectedDns: placeholder},
+		{name: "v2 for sale, dns record ignored not incompatible", internal: map[string]string{"ver": "2.12", "sellamt": "1000000"}, dns: new(record), expectedDns: placeholder},
+		{name: "v2 owned, dns empty list", internal: map[string]string{"ver": "2.12"}, dns: new("[]"), expectedDns: placeholder},
+		{name: "v2 owned, dns record incompatible", internal: map[string]string{"ver": "2.12"}, dns: new(record), expectedErr: ErrNFdIncompatible},
+		{name: "v2 owned, blueskydid incompatible", internal: map[string]string{"ver": "2.12"}, dns: new("[]"), blueskydid: "did:plc:abc", expectedErr: ErrNFdIncompatible},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			props := Properties{
+				Internal:    map[string]string{"owner": owner},
+				UserDefined: map[string]string{},
+				Verified:    map[string]string{},
+			}
+			maps.Copy(props.Internal, tt.internal)
+			if tt.dns != nil {
+				props.UserDefined["dns"] = *tt.dns
+			}
+			if tt.blueskydid != "" {
+				props.Verified["blueskydid"] = tt.blueskydid
+			}
+
+			result, err := fetcher.applyDnsPlaceholder(nfdAppId, props)
+			if tt.expectedErr != nil {
+				assert.ErrorIs(t, err, tt.expectedErr)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expectedDns, result.UserDefined["dns"])
+			assert.Equal(t, tt.blueskydid, result.Verified["blueskydid"])
 		})
 	}
 }

@@ -160,10 +160,13 @@ Behavior that is easy to break and not obvious from a single file:
    `strings.EqualFold` on the full name, so a stored `*.@` matches only the literal name
    `*.<nfd>.`, never arbitrary subdomains.
 
-8. **The synthetic-placeholder rule is broader than "expired."** `fetch.go:128-143`
-   overwrites `UserDefined["dns"]` with a single apex A record pointing at `algoxyzip`
-   whenever the NFD is expired, **is listed for sale** (`sellamt != 0`, `fetch.go:482-492`),
-   is owned by its own app account, or simply has no `dns` property. So any existing NFD
+8. **The synthetic-placeholder rule is broader than "expired."** `applyDnsPlaceholder`
+   (`fetch.go:134-154`) overwrites `UserDefined["dns"]` with a single apex A record pointing at
+   `algoxyzip` whenever the NFD is expired, **is listed for sale** (`sellamt != 0`,
+   `fetch.go:490-500`), is owned by its own app account, or has no `dns` records. An empty
+   list (`"[]"`/`null`, which the dashboard saves for a cleared editor) is the same as an absent
+   property everywhere, segments included (`hasDnsRecords`). Treating `"[]"` as "has records"
+   used to make such NFDs answer NXDOMAIN. So any existing NFD
    always answers A at its apex — and listing an NFD for sale silently disables all of its
    DNS records.
 
@@ -238,10 +241,10 @@ match its embedded zone and produce a proper NXDOMAIN+SOA.
 
 | Error | Where | Notes |
 |-------|-------|-------|
-| `ErrNfdNotFound` | `fetch.go:36` | Mapped to NoData → fall-through → NXDOMAIN from the zone file |
-| `ErrNFdIncompatible` | `fetch.go:37` | Pre-v3 contract carrying `dns`/`blueskydid` → SERVFAIL (note the capital-F typo in the name) |
-| `ErrNfdExpired` | `fetch.go:38` | **Declared but never referenced** — expiry is handled via the `IsNFdExpired` boolean |
-| `ErrNfdNotOwned` | `fetch.go:39` | **Declared but never referenced** — same, via `IsNfdOwned` |
+| `ErrNfdNotFound` | `fetch.go:37` | Mapped to NoData → fall-through → NXDOMAIN from the zone file |
+| `ErrNFdIncompatible` | `fetch.go:38` | Pre-v3 contract carrying `dns`/`blueskydid` → SERVFAIL (note the capital-F typo in the name) |
+| `ErrNfdExpired` | `fetch.go:39` | **Declared but never referenced** — expiry is handled via the `IsNFdExpired` boolean |
+| `ErrNfdNotOwned` | `fetch.go:40` | **Declared but never referenced** — same, via `IsNfdOwned` |
 | `ErrNfdTooManySegments` | `nfdrr.go:25` | Depth limit → SERVFAIL |
 | `ErrInvalidDNSJson` | `dnsjson.go:19` | Unmarshal failure of the on-chain `dns` property |
 | `errNotImplemented` | `nfd.go:64` | Unexported, package `main`; unsupported qtype → NOTIMP |

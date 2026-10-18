@@ -501,7 +501,8 @@ A segment (e.g. `relay.belt.algo`) is its own NFD with its own owner, and it **a
 
 8. **Placeholder fallback**: Your NFD returns a default placeholder — a single A record at
    your domain pointing to the NFD redirect service — instead of your configured records
-   whenever it is expired, **listed for sale**, or has no DNS records configured at all.
+   whenever it is expired, **listed for sale**, or has no DNS records configured at all
+   (an empty custom DNS list counts as none, so your redirect URL keeps working).
    Queries for any other record type then return NODATA. Note that **listing your NFD for
    sale disables all of its DNS records** until you delist or it sells.
 
