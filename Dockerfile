@@ -1,3 +1,5 @@
+# Floating 1.26 tag picks up the latest patch release; go.mod's `go 1.26.10` line plus the
+# image's GOTOOLCHAIN=local makes a stale cached image fail the build instead of shipping old Go.
 FROM golang:1.26-alpine AS builder
 WORKDIR /
 

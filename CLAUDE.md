@@ -24,7 +24,10 @@ submission for `algo.xyz` (see the `_psl` TXT record in `internal/zones/algo.xyz
 
 ## Build & Test Commands
 
-Requires **Go 1.26**.
+Requires **Go 1.26.10+** (`go.mod` floor). All builds track the latest 1.26.x: setup-go uses
+`1.26.x` + `check-latest`, go-release-action's bare `1.26` resolves the newest patch, and the
+Dockerfile's floating `golang:1.26-alpine` is pulled fresh (`--pull`). Bump the `go.mod`
+floor when a security patch lands so a stale toolchain fails instead of building.
 
 ```bash
 # Build

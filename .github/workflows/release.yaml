@@ -26,6 +26,7 @@ jobs:
           goarch: ${{ matrix.goarch }}
           ldflags: "-s -w -X github.com/coredns/coredns/coremain.GitCommit=${{ github.ref_name }}"
           extra_files: LICENSE README.md docs
+          # A bare minor resolves to its latest patch release from go.dev/dl.
           goversion: '1.26'
           build_flags: "-tags=goexperiment.jsonv2"
   docker:
@@ -59,6 +60,7 @@ jobs:
           context: .
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
+          pull: true
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

@@ -116,7 +116,7 @@ go build -v -tags=goexperiment.jsonv2 -o out/ \
 docker buildx build --platform linux/amd64 -t nfddns:latest .
 ```
 
-Requires **Go 1.26+**.
+Requires **Go 1.26.10+** (the `go` line in `go.mod`). CI, release, and Docker builds track the latest 1.26.x patch release.
 
 ## Testing
 
