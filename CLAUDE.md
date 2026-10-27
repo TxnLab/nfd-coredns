@@ -24,10 +24,16 @@ submission for `algo.xyz` (see the `_psl` TXT record in `internal/zones/algo.xyz
 
 ## Build & Test Commands
 
-Requires **Go 1.26.10+** (`go.mod` floor). All builds track the latest 1.26.x: setup-go uses
-`1.26.x` + `check-latest`, go-release-action's bare `1.26` resolves the newest patch, and the
-Dockerfile's floating `golang:1.26-alpine` is pulled fresh (`--pull`). Bump the `go.mod`
+Requires **Go 1.27.3+** (`go.mod` floor). All builds track the latest 1.27.x: setup-go uses
+`1.27.x` + `check-latest`, go-release-action's bare `1.27` resolves the newest patch, and the
+Dockerfile's floating `golang:1.27-alpine` is pulled fresh (`--pull`). Bump the `go.mod`
 floor when a security patch lands so a stale toolchain fails instead of building.
+
+JSON v2 is in the Go 1.27 default experiment baseline, so `encoding/json` runs on the v2
+implementation (with v1 semantics) and no `goexperiment.jsonv2` build tag is needed. The code
+deliberately stays on the v1 `encoding/json` API: the `dns` property is user-authored on-chain
+JSON, and v2-API semantics (case-sensitive field names, duplicate-key and invalid-UTF-8
+rejection) would turn records that parse today into SERVFAILs.
 
 ```bash
 # Build
@@ -42,8 +48,8 @@ go test -v ./internal/nfd
 # Run a specific test
 go test -v -run TestGetNfdRRs ./internal/nfd
 
-# Production build (note the jsonv2 experiment tag — used by Dockerfile and release.yaml)
-go build -v -tags=goexperiment.jsonv2 -o out/ \
+# Production build (same flags as the Dockerfile)
+go build -v -o out/ \
   -ldflags="-s -w -X github.com/coredns/coredns/coremain.GitCommit=$(git describe --dirty --always)" .
 
 # Docker build

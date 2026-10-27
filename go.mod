@@ -1,6 +1,6 @@
 module github.com/TxnLab/nfd-coredns
 
-go 1.26.10
+go 1.27.3
 
 require (
 	github.com/algorand/go-algorand-sdk/v2 v2.14.0

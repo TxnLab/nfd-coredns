@@ -27,8 +27,7 @@ jobs:
           ldflags: "-s -w -X github.com/coredns/coredns/coremain.GitCommit=${{ github.ref_name }}"
           extra_files: LICENSE README.md docs
           # A bare minor resolves to its latest patch release from go.dev/dl.
-          goversion: '1.26'
-          build_flags: "-tags=goexperiment.jsonv2"
+          goversion: '1.27'
   docker:
     runs-on: ubuntu-latest
     steps:

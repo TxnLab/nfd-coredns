@@ -1,6 +1,6 @@
-# Floating 1.26 tag picks up the latest patch release; go.mod's `go 1.26.10` line plus the
+# Floating 1.27 tag picks up the latest patch release; go.mod's `go 1.27.3` line plus the
 # image's GOTOOLCHAIN=local makes a stale cached image fail the build instead of shipping old Go.
-FROM golang:1.26-alpine AS builder
+FROM golang:1.27-alpine AS builder
 WORKDIR /
 
 # Install git and certificates
@@ -8,7 +8,7 @@ RUN apk --no-cache add tzdata zip ca-certificates git make
 COPY go.* ./
 RUN go mod download
 COPY . ./
-RUN --mount=type=cache,target=/root/.cache/go-build env GOOS=linux GOARCH=amd64 go build -v -tags=goexperiment.jsonv2 -o out/ -ldflags="-s -w -X github.com/coredns/coredns/coremain.GitCommit=$(git describe --dirty --always)" .
+RUN --mount=type=cache,target=/root/.cache/go-build env GOOS=linux GOARCH=amd64 go build -v -o out/ -ldflags="-s -w -X github.com/coredns/coredns/coremain.GitCommit=$(git describe --dirty --always)" .
 
 FROM scratch
 WORKDIR /app

@@ -108,15 +108,15 @@ algo.xyz {
 go build -v ./...
 
 # Production build with version info
-# (the goexperiment.jsonv2 tag matches the Dockerfile and release workflow)
-go build -v -tags=goexperiment.jsonv2 -o out/ \
+go build -v -o out/ \
   -ldflags="-s -w -X github.com/coredns/coredns/coremain.GitCommit=$(git describe --dirty --always)" .
 
 # Docker (linux/amd64)
 docker buildx build --platform linux/amd64 -t nfddns:latest .
 ```
 
-Requires **Go 1.26.10+** (the `go` line in `go.mod`). CI, release, and Docker builds track the latest 1.26.x patch release.
+Requires **Go 1.27.3+** (the `go` line in `go.mod`). CI, release, and Docker builds track the latest 1.27.x patch release.
+Go 1.27 enables the JSON v2 implementation by default, so `encoding/json` is v2-backed with no build tag.
 
 ## Testing
 
