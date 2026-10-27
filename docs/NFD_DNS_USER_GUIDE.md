@@ -486,7 +486,9 @@ A segment (e.g. `relay.belt.algo`) is its own NFD with its own owner, and it **a
 
 3. **Record types**: You can configure A, AAAA, CNAME, MX, TXT, SRV, CAA and CERT records.
    NS and SOA are accepted as *query* types but cannot be served from your NFD (see item 2).
-   Any other query type — including `HTTPS`/`SVCB` and `ANY` — returns NOTIMP.
+   Any other query type — including `HTTPS`/`SVCB` — returns NOTIMP. An `ANY` query never
+   returns your records; per RFC 8482 it gets a single placeholder
+   `HINFO "ANY obsoleted" "See RFC 8482"`. Query the specific type you want instead.
 
 4. **No wildcards**: Names are matched exactly. A record named `*.@` matches only the
    literal name `*.yournfd.algo.xyz`, not arbitrary subdomains.

@@ -72,7 +72,7 @@ lint or vet step, so don't assume a linter will catch anything.
 
 ### Plugin wiring (easy to get wrong)
 
-`nfd` is the **last** entry in `dnsserver.Directives` (`main.go:25-40`). The chain is not a
+`nfd` is the **last** entry in `dnsserver.Directives` (`main.go:26-42`). The chain is not a
 flat list:
 
 - `NfdPlugin.Next` **is** the `file` plugin, holding the embedded zones (`setup.go:90-95`).
@@ -135,7 +135,10 @@ Behavior that is easy to break and not obvious from a single file:
    (`nfd.go:177-200`) and the dispatch in `Query` (`nfd.go:396-419`). **Edit both together.**
    `DnsRRsFromJsonRRs` is entirely type-agnostic: it composes a zone-file line and calls
    `dns.NewRR`. Current set: SOA, NS, CAA, CNAME, TXT, MX, SRV, CERT, A, AAAA. Anything
-   else returns **NOTIMP** (`nfd.go:137-138`), including HTTPS/SVCB and ANY.
+   else returns **NOTIMP** (`nfd.go:137-138`), including HTTPS/SVCB. ANY never reaches
+   `nfd`: the CoreDNS `any` plugin (in `directives` and both Corefile blocks) answers it with
+   the RFC 8482 HINFO. If a Corefile omits `any`, ANY falls back to NOTIMP here — keep it out
+   of the allow-list so the full record set is never returned.
 
 2. **NS is intercepted before record matching** (`nfd.go:245-256`). NFD subdomains are not
    delegated zones, so a user-stored NS record is never servable — it only counts toward

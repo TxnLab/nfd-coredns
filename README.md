@@ -33,8 +33,10 @@ Root zone queries (e.g., `algo.xyz NS`) are served from embedded zone files. Out
 
 ## Supported DNS Record Types
 
-A, AAAA, CNAME, MX, TXT, SRV, CAA, CERT, NS, SOA — any other qtype (including HTTPS/SVCB
-and ANY) returns NOTIMP.
+A, AAAA, CNAME, MX, TXT, SRV, CAA, CERT, NS, SOA — any other qtype (including HTTPS/SVCB)
+returns NOTIMP. `ANY` is answered per RFC 8482 by the CoreDNS `any` plugin with a single
+synthesized `HINFO "ANY obsoleted" "See RFC 8482"`, never the full record set; without `any`
+in the Corefile it falls back to NOTIMP.
 
 `NS` is accepted as a query type but is never answered from NFD data: NFD subdomains are
 not delegated zones, so NS queries return NODATA or NXDOMAIN with the zone's SOA in the
@@ -72,6 +74,7 @@ The plugin is configured in a CoreDNS `Corefile`:
 
 ```
 algo.xyz {
+    any                                             # RFC 8482: answer ANY with a synthesized HINFO
     rewrite name regex (.*)\.algo\.xyz {1}.algo
     rewrite answer name (.*)\.algo {1}.algo.xyz
 

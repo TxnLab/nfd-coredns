@@ -2,6 +2,7 @@
     health :8080
     reload
     prometheus :9153
+    any
     rewrite stop {
       # rewrite requests to remove xyz suffix - add back on answer
       name regex (.*)\.algo\.xyz {1}.algo
@@ -27,6 +28,7 @@
   dotalgo.io {
     reload
     prometheus :9153
+    any
     rewrite stop {
       name regex (.*)\.dotalgo\.io {1}.algo
       answer name (.*)\.algo {1}.dotalgo.io

@@ -8,6 +8,7 @@ package main
 import (
 	"github.com/coredns/coredns/core/dnsserver"
 	"github.com/coredns/coredns/coremain"
+	_ "github.com/coredns/coredns/plugin/any"
 	_ "github.com/coredns/coredns/plugin/bind"
 	_ "github.com/coredns/coredns/plugin/cache"
 	_ "github.com/coredns/coredns/plugin/cancel"
@@ -32,6 +33,7 @@ var directives = []string{
 	"prometheus",
 	"errors",
 	"log",
+	"any",
 	"cache",
 	"rewrite",
 	"file",
