@@ -2,6 +2,9 @@ module github.com/TxnLab/nfd-coredns
 
 go 1.27.3
 
+// CVE-2026-98432: don't open MPTCP listeners (Go 1.24+ default); the known kernel exploit targets them.
+godebug multipathtcp=0
+
 require (
 	github.com/algorand/go-algorand-sdk/v2 v2.14.0
 	github.com/coredns/caddy v1.1.4
