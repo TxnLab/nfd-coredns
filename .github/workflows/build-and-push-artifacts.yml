@@ -27,6 +27,8 @@ jobs:
   build:
     name: Build nfd-coredns
     needs: build-test
+    # Images are pushed from main only; the WIF provider rejects any other ref.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
 
     permissions:
@@ -65,15 +67,16 @@ jobs:
   push-to-env:
     name: Push hash to env repo
     needs: build
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    # GH_ENV_TOKEN lives in this environment, which only main may use.
+    environment: env-dispatch
 
     permissions:
       contents: 'read'
-      id-token: 'write'
 
     steps:
-      - name: Push hash to environment repo to start deploy process [if main]
-        if: ${{ github.ref_name == 'main' }}
+      - name: Push hash to environment repo to start deploy process
         uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.GH_ENV_TOKEN }}
